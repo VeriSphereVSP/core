@@ -1,33 +1,11 @@
-# Rust / Cargo
-debug
-target
-**/*.rs.bk
-*.pdb
+# Foundry
+out/
+cache/
+broadcast/
 
-# Cargo mutants
-**/mutants.out*/
+# Node (in case tests/scripts install tooling later)
+node_modules/
 
-# Node / JS
-node_modules
-npm-debug.log
-yarn-error.log
-.yarn
-
-# Hardhat / Foundry
-cache
-artifacts
-out
-broadcast
-cache_forge
-
-# JetBrains IDEs
-# (optional – uncomment to ignore entire folder)
-#.idea/
-
-# Test data
-test-ledger
-
-# OS files
+# OS
 .DS_Store
-Thumbs.db
 
