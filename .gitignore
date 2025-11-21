@@ -2,6 +2,7 @@
 out/
 cache/
 broadcast/
+foundry.lock
 
 # Node (in case tests/scripts install tooling later)
 node_modules/
