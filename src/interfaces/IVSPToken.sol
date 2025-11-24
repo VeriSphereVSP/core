@@ -5,8 +5,5 @@ interface IVSPToken {
     function mint(address to, uint256 amount) external;
     function burn(uint256 amount) external;
     function burnFrom(address from, uint256 amount) external;
-
-    function setIdleDecayRate(uint256 rateBps) external;
-    function applyIdleDecay(address user) external returns (uint256 decayed);
 }
 

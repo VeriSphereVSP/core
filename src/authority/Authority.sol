@@ -12,6 +12,13 @@ contract Authority {
 
     constructor(address _owner) {
         owner = _owner;
+
+        // Bootstrap privileges
+        isMinter[_owner] = true;
+        isBurner[_owner] = true;
+
+        emit MinterSet(_owner, true);
+        emit BurnerSet(_owner, true);
     }
 
     modifier onlyOwner() {
