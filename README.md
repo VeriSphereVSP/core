@@ -108,6 +108,16 @@ burn / burnFrom → onlyBurner
 
 This allows the staking engine, treasury, or governance hub (in other repos) to mint or burn VSP as needed.
 
+### 4.3 Deployed Addresses (Fuji Testnet)
+
+The current Fuji testnet deployment (from `script/DeployVSP.s.sol`) is:
+
+- **VSPToken:** `0xa8319c13dbA8f4b8d3609910549BF5e9A055c207`
+- **Authority:** `0xdcc4AC5b091C0E779CE106c1Ba384aB5C56143c5`
+
+Verification:
+- Sourcify (VSPToken): https://repo.sourcify.dev/contracts/full_match/43113/0xa8319c13dbA8f4b8d3609910549BF5e9A055c207 
+- Sourcify (Authority): https://repo.sourcify.dev/contracts/full_match/43113/0xdcc4AC5b091C0E779CE106c1Ba384aB5C56143c5  
 ---
 
 ## 5. Development: Build & Test
