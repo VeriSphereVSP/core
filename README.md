@@ -1,48 +1,41 @@
-# VeriSphere Core
-
-A highly concise and GitHub‑safe README for the core protocol.
+# VeriSphere Core (Revised with Updated Staking Model)
 
 ## Overview
 
-VeriSphere is a truth‑staking protocol deployed on Avalanche. The `core/` repository contains the **on‑chain foundation** of the system, including the VSP token and its role‑based authority layer. Higher‑level protocol mechanics—posts, staking, link graph, governance interpretation—are implemented in the application‑layer repositories (`docs`, `backend`, `frontend`).
+VeriSphere is a truth-staking protocol deployed on Avalanche. The `core/` repository contains the on-chain foundation of the system, including the VSP token and its role-based authority layer.
 
-This README provides both a **high‑level explanation** of VeriSphere and a **technical reference** for developers working directly with this repo.
+This README has been updated to reflect the new global staking model:
 
----
+- Global rate band (Rmin to Rmax)
+- Post Reward Factor P (anti-fracturing)
+- Positional reward weighting
+- Reward neutrality when VS = 0
+- Idle decay removed from MVP
 
-## 1. What VeriSphere Is (High‑Level)
-
-VeriSphere is a **truth‑staking market**.
-
-- Anyone can publish a claim.
-- Anyone can stake **for** (support) or **against** (challenge) any claim.
-- Being *right* earns VSP (minted).
-- Being *wrong* loses VSP (burned).
-- Claims are linked together as evidence using a directed support/challenge graph.
-
-There are no moderators, votes, reputation systems, or popularity metrics.  
-Truth emerges economically: **correct ideas accrue capital; incorrect ideas leak it.**
+Higher-level protocol mechanics are implemented in the application-layer repositories (`docs`, `backend`, `frontend`).
 
 ---
 
-## 2. What’s Inside This Repo
+## 1. VeriSphere as a Truth-Staking Market
 
-This repository contains the **core EVM‑level primitives** needed by the protocol:
+VeriSphere is a capital-weighted epistemic game:
 
-- **`VSPToken.sol`** — ERC‑20 token with governance‑controlled minting & burning.  
-  *Idle decay has been removed from MVP.*
-- **`Authority.sol`** — Lightweight role system controlling who may mint or burn.
-- **Deployment scripts** (Foundry) for Fuji & Avalanche C‑Chain.
-- **Comprehensive Foundry tests** for token + authority behavior.
+- Publishing a claim ("Post")
+- Staking support (for) or challenge (against)
+- Correct stake mints VSP
+- Incorrect stake burns VSP
+- Claims connected through a directed support/challenge graph
 
-The rest of the protocol lives elsewhere:
+No moderators, votes, or reputation systems. Truth emerges economically.
 
-| Subsystem | Repo |
-|----------|-------|
-| Posting, staking, VS logic | `verisphere/backend` |
-| LinkGraph + evidence propagation | `verisphere/backend` |
-| UI (web client) | `verisphere/frontend` |
-| Whitepaper + architecture spec | `verisphere/docs` |
+---
+
+## 2. What's Inside This Repo
+
+- `VSPToken.sol`: ERC-20 token with governance-controlled mint/burn
+- `Authority.sol`: Owner/minter/burner role controller
+- Foundry deployment scripts
+- Foundry test suite
 
 ---
 
@@ -69,146 +62,128 @@ core/
 ├── foundry.toml
 └── README.md
 ```
+---
+
+## 4. Updated Staking Algorithm Overview
+
+This section summarizes how VSP is minted/burned by upstream systems.
+
+### 4.1 Verity Score (VS)
+
+A = total support stake  
+D = total challenge stake
+
+VS = (2 * (A / (A + D)) - 1) * 100  
+If A + D = 0 → VS = 0.
+
+### 4.2 Global Rate Band
+
+Governance defines:
+
+Rmin = minimum annual rate  
+Rmax = maximum annual rate  
+Rrange = Rmax - Rmin
+
+### 4.3 Post Reward Factor P (Anti-Fracturing)
+
+T = total stake on post  
+S = total VSP in circulation
+
+P = T / (T + S)
+
+Tiny posts → P ≈ 0  
+Large posts → P increases smoothly
+
+### 4.4 VS Sensitivity
+
+v = abs(VS) / 100
+
+### 4.5 Position Weight (Queue-Based)
+
+i = position index (1 = earliest)
+
+w_i = (1 / i) / H_N  
+H_N = sum(1/j from j=1 to N)
+
+### 4.6 Alignment Sign
+
+sgn = +1 if stake matches VS direction  
+sgn = -1 if opposed  
+sgn = 0 if VS = 0
+
+### 4.7 Effective Rate
+
+r_eff = Rmin + Rrange * P * v * w_i
+
+### 4.8 Stake Update Rule
+
+If VS = 0:  
+n_next = n
+
+Else:  
+delta = n * sgn * r_eff * dt  
+n_next = max(0, n + delta)
 
 ---
 
-## 4. VSP Token (Technical Overview)
+## 5. VSP Token Details
 
-`VSPToken` is a minimal, governance‑controlled ERC‑20.
+### Roles
 
-### 4.1 Features
+- Owner
+- Minter
+- Burner
 
-- Standard ERC‑20 compatibility
-- Minting restricted to authorized minters
-- Burning restricted to authorized burners
-- `Authority` contract manages roles
+Only minters can mint, only burners can burn.
 
-No other token logic (no idle decay, no staking mechanics) is included in MVP.
+### Fuji Deployment
 
-### 4.2 Roles
-
-`Authority.sol` defines:
-
-- **Owner**
-- **Minter**
-- **Burner**
-
-Owner has the exclusive ability to:
-
-- Set new owner  
-- Add/remove minters  
-- Add/remove burners  
-
-VSP token actions are gated:
-
-```
-mint → onlyMinter
-burn / burnFrom → onlyBurner
-```
-
-This allows the staking engine, treasury, or governance hub (in other repos) to mint or burn VSP as needed.
-
-### 4.3 Deployed Addresses (Fuji Testnet)
-
-The current Fuji testnet deployment (from `script/DeployVSP.s.sol`) is:
-
-- **VSPToken:** `0xa8319c13dbA8f4b8d3609910549BF5e9A055c207`
-- **Authority:** `0xdcc4AC5b091C0E779CE106c1Ba384aB5C56143c5`
-
-Verification:
-- Sourcify (VSPToken): https://repo.sourcify.dev/contracts/full_match/43113/0xa8319c13dbA8f4b8d3609910549BF5e9A055c207 
-- Sourcify (Authority): https://repo.sourcify.dev/contracts/full_match/43113/0xdcc4AC5b091C0E779CE106c1Ba384aB5C56143c5  
----
-
-## 5. Development: Build & Test
-
-### 5.1 Install Foundry
-
-```bash
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
-```
-
-### 5.2 Install Dependencies
-
-```bash
-forge install OpenZeppelin/openzeppelin-contracts --no-git
-```
-
-### 5.3 Build
-
-```bash
-forge build
-```
-
-### 5.4 Run Tests
-
-```bash
-forge test -vv
-```
-
-The existing suite covers:
-
-- Minting as allowed / forbidden
-- Burning as allowed / forbidden
-- `burnFrom` + allowance behavior
-- Owner‑controlled role assignment
-- Unauthorized role modification reverts
+VSPToken: 0xa8319c13dbA8f4b8d3609910549BF5e9A055c207  
+Authority: 0xdcc4AC5b091C0E779CE106c1Ba384aB5C56143c5
 
 ---
 
-## 6. Deployment to Avalanche
+## 6. Developer Workflow
 
-### 6.1 Environment Variables
+Build:
 
-```bash
-export FUJI_RPC="https://api.avax-test.network/ext/bc/C/rpc"
-export AVAX_RPC="https://api.avax.network/ext/bc/C/rpc"
-export PRIVATE_KEY="0xYOUR_KEY"
-```
+    forge build
 
-Use a **test key** on Fuji and a **hardware wallet** or multisig for mainnet.
+Test:
 
-### 6.2 Fuji Deployment
+    forge test -vv
 
-```bash
-forge script script/DeployVSP.s.sol:DeployVSP   --rpc-url "$FUJI_RPC"   --private-key "$PRIVATE_KEY"   --broadcast -vvvv
-```
+Deploy (Fuji):
 
-### 6.3 Mainnet Deployment
+    forge script script/DeployVSP.s.sol:DeployVSP --rpc-url $FUJI_RPC --private-key $PRIVATE_KEY --broadcast -vvvv
 
-```bash
-forge script script/DeployVSP.s.sol:DeployVSP   --rpc-url "$AVAX_RPC"   --private-key "$PRIVATE_KEY"   --broadcast -vvvv
-```
+Deploy (Mainnet):
+
+    forge script script/DeployVSP.s.sol:DeployVSP --rpc-url $AVAX_RPC --private-key $PRIVATE_KEY --broadcast -vvvv
 
 ---
 
-## 7. Integration with the Full Protocol
+## 7. Integration Notes
 
-Although this repo only provides the token layer, it integrates with:
+Other systems calling mint/burn:
 
-- **Staking Engine:** Burns or mints VSP as users win or lose truth stakes.
-- **Post Registry:** Uses VSP for posting fees.
-- **Governance Hub:** Controls minters/burners via the Authority.
-- **Treasury:** Holds VSP for rewards and payouts.
-
-All higher‑level logic is handled in the application layer.
+- Staking Engine
+- Post Registry
+- Treasury / Governance
 
 ---
 
 ## 8. License
 
-MIT — see `LICENSE`.
+MIT.
 
 ---
 
-## 9. Status (MVP)
+## 9. Status
 
-- VSP token: ✔ fully implemented  
-- Authority system: ✔ implemented  
-- Idle decay: ✘ removed for MVP  
-- Staking engine: external repo  
-- LinkGraph: external repo  
-- Governance vault/hub: external repo  
-
-VeriSphere Core is ready for integration with the rest of the system.
+Token: complete  
+Authority: complete  
+Idle decay: removed  
+Staking engine: external repo  
+LinkGraph: external repo  
+Governance hub: external repo
