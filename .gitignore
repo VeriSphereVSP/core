@@ -3,10 +3,18 @@ out/
 cache/
 broadcast/
 foundry.lock
+*.json
+
+# Environment variables
+.env
+*.env
+
+# Logs
+*.log
 
 # Node (in case tests/scripts install tooling later)
 node_modules/
 
 # OS
 .DS_Store
-
+Thumbs.db

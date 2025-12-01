@@ -8,9 +8,7 @@ import {Authority} from "./authority/Authority.sol";
 contract VSPToken is ERC20, IVSPToken {
     Authority public authority;
 
-    constructor(address owner) 
-        ERC20("VeriSphere Token", "VSP") 
-    {
+    constructor(address owner) ERC20("VeriSphere Token", "VSP") {
         authority = new Authority(owner);
     }
 

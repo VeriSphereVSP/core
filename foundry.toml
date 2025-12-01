@@ -4,20 +4,20 @@ out = "out"
 libs = ["lib"]
 cache = true
 optimizer = true
-optimizer_runs = 10_000
+optimizer_runs = 10000
 
-# Needed for OZ
 remappings = [
-    "openzeppelin-contracts/=lib/openzeppelin-contracts/",
+    "openzeppelin-contracts/=lib/openzeppelin-contracts/"
 ]
 
-# Default Avalanche RPCs (user may override via env)
 [rpc_endpoints]
 fuji = "https://api.avax-test.network/ext/bc/C/rpc"
 avalanche = "https://api.avax.network/ext/bc/C/rpc"
 
 [etherscan]
-# This API is compatible with Snowtrace
-fuji = { key = "${SNOWTRACE_API_KEY}", chain = 43113 }
-avalanche = { key = "${SNOWTRACE_API_KEY}", chain = 43114 }
+# Fuji: No API key required; Foundry uses placeholder internally
+fuji = { key = "", chain = 43113 }
+
+# For Avalanche mainnet, RouteScan *does* require a key (optional for now)
+avalanche = { key = "", chain = 43114 }
 
