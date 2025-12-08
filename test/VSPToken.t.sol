@@ -14,11 +14,9 @@ contract VSPTokenTest is Test {
     function setUp() public {
         token = new VSPToken(owner);
 
-        // Confirm Authority wiring
         Authority auth = Authority(address(token.authority()));
         assertEq(auth.owner(), owner);
 
-        // Roles are already set in constructor, but we can assert:
         assertTrue(auth.isMinter(owner));
         assertTrue(auth.isBurner(owner));
     }
@@ -34,27 +32,23 @@ contract VSPTokenTest is Test {
         token.mint(owner, 2000);
         token.burn(500);
         vm.stopPrank();
-
         assertEq(token.balanceOf(owner), 1500);
     }
 
     function testBurnFromWithAllowance() public {
-        // mint tokens to user1
         vm.prank(owner);
         token.mint(user1, 1000);
 
-        // user1 approves owner to burn
         vm.prank(user1);
         token.approve(owner, 400);
 
-        // owner burns from user1
         vm.prank(owner);
         token.burnFrom(user1, 300);
 
         assertEq(token.balanceOf(user1), 700);
     }
 
-    // ---- Reverts ----
+    // --- Reverts ---
 
     function test_RevertWhen_NonOwnerMints() public {
         vm.prank(user1);
@@ -74,7 +68,7 @@ contract VSPTokenTest is Test {
         vm.stopPrank();
 
         vm.prank(owner);
-        vm.expectRevert(); // ERC20InsufficientAllowance
+        vm.expectRevert(); // ERC20 insufficient allowance
         token.burnFrom(user1, 300);
     }
 
