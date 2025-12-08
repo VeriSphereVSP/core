@@ -14,12 +14,7 @@ contract PostRegistryTest is Test {
     function testCreateStandalonePost() public {
         uint256 id = registry.createPost("Hello world", 0);
 
-        (
-            address creator,
-            uint256 timestamp,
-            string memory text,
-            int256 targetPostId
-        ) = registry.getPost(id);
+        (address creator, uint256 timestamp, string memory text, int256 targetPostId) = registry.getPost(id);
 
         assertEq(creator, address(this));
         assertEq(text, "Hello world");
@@ -29,14 +24,14 @@ contract PostRegistryTest is Test {
 
     function testCreateSupportLink() public {
         uint256 id = registry.createPost("Link", 5);
-        (, , , int256 target) = registry.getPost(id);
+        (,,, int256 target) = registry.getPost(id);
 
         assertEq(target, 5);
     }
 
     function testCreateChallengeLink() public {
         uint256 id = registry.createPost("Nope", -3);
-        (, , , int256 target) = registry.getPost(id);
+        (,,, int256 target) = registry.getPost(id);
 
         assertEq(target, -3);
     }

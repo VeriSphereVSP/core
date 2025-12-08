@@ -25,12 +25,7 @@ contract PostRegistry {
     // Events
     // ---------------------------------------------------------------------
 
-    event PostCreated(
-        uint256 indexed postId,
-        address indexed creator,
-        string text,
-        int256 targetPostId
-    );
+    event PostCreated(uint256 indexed postId, address indexed creator, string text, int256 targetPostId);
 
     // ---------------------------------------------------------------------
     // Errors
@@ -71,21 +66,13 @@ contract PostRegistry {
     /// @notice Create a new post or link.
     /// @param text          The human-readable claim text.
     /// @param targetPostId  0 = standalone, >0 = support, <0 = challenge.
-    function createPost(string calldata text, int256 targetPostId)
-        external
-        returns (uint256 postId)
-    {
+    function createPost(string calldata text, int256 targetPostId) external returns (uint256 postId) {
         if (bytes(text).length == 0) revert EmptyText();
 
         postId = nextPostId;
         nextPostId += 1;
 
-        posts[postId] = Post({
-            creator: msg.sender,
-            timestamp: block.timestamp,
-            text: text,
-            targetPostId: targetPostId
-        });
+        posts[postId] = Post({creator: msg.sender, timestamp: block.timestamp, text: text, targetPostId: targetPostId});
 
         emit PostCreated(postId, msg.sender, text, targetPostId);
     }
@@ -98,12 +85,7 @@ contract PostRegistry {
     function getPost(uint256 postId)
         external
         view
-        returns (
-            address creator,
-            uint256 timestamp,
-            string memory text,
-            int256 targetPostId
-        )
+        returns (address creator, uint256 timestamp, string memory text, int256 targetPostId)
     {
         if (postId == 0 || postId >= nextPostId) revert InvalidPostId();
 

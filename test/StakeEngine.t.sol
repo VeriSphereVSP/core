@@ -120,7 +120,7 @@ contract StakeEngineTest is Test {
 
         engine.withdraw(postId, 0, 60 ether, true); // LIFO
 
-        (uint256 s, ) = engine.getPostTotals(postId);
+        (uint256 s,) = engine.getPostTotals(postId);
         assertEq(s, 60 ether);
     }
 
