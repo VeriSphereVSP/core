@@ -12,6 +12,7 @@ on:
 jobs:
   sync-bounty:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,13 +37,23 @@ jobs:
         id: parse
         shell: bash
         run: |
-          # Not all events have identical shapes, so guard access
-          TITLE="${{ github.event.issue.title || github.event.pull_request.title || github.event.workflow_run?.display_title }}"
-          URL="${{ github.event.issue.html_url || github.event.pull_request.html_url || github.event.repository.html_url }}"
+          # Safe fallbacks — no optional chaining "?."
+          TITLE="${{ github.event.issue.title 
+              || github.event.pull_request.title
+              || (github.event.workflow_run && github.event.workflow_run.display_title)
+              || github.event.repository.name }}"
+
+          URL="${{ github.event.issue.html_url
+              || github.event.pull_request.html_url
+              || (github.event.workflow_run && github.event.workflow_run.html_url)
+              || github.event.repository.html_url }}"
+
           LABELS_JSON='${{ toJson(github.event.issue.labels || github.event.pull_request.labels) }}'
+
           ACTOR="${{ github.actor }}"
           ACTION="${{ github.event.action || 'manual' }}"
           REPO="${{ github.repository }}"
+
           echo "title=$TITLE" >> $GITHUB_OUTPUT
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "labels=$LABELS_JSON" >> $GITHUB_OUTPUT
