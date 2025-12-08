@@ -6,8 +6,6 @@ import "../src/PostRegistry.sol";
 
 contract DeployPostRegistry is Script {
     function run() external {
-        // Load private key from environment:
-        // export PRIVATE_KEY=0xyourkey
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
 
         vm.startBroadcast(deployerPrivateKey);
@@ -19,3 +17,4 @@ contract DeployPostRegistry is Script {
         console2.log("PostRegistry deployed at:", address(registry));
     }
 }
+
