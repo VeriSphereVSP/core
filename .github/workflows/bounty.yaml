@@ -1,6 +1,7 @@
 name: VeriSphere Bounty Sync
 
-on: []
+on:
+  workflow_dispatch:
 
 jobs:
   sync-bounty:
