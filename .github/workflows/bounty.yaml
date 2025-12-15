@@ -1,13 +1,6 @@
 name: VeriSphere Bounty Sync
 
-on:
-  issues:
-    types: [opened, labeled, unlabeled, closed, reopened, edited]
-  issue_comment:
-    types: [created]
-  pull_request:
-    types: [closed]
-  workflow_dispatch:
+on: []
 
 jobs:
   sync-bounty:
