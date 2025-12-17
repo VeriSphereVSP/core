@@ -2,41 +2,46 @@
 pragma solidity ^0.8.20;
 
 /// @title LinkGraph
-/// @notice Enforces a DAG over claim-to-claim links.
-///         Stores ONLY adjacency needed for cycle detection.
+/// @notice Enforces a DAG over claim-to-claim edges and indexes incoming edges by dependent claim.
+///         Stores adjacency for:
+///         (a) cycle detection (outgoing nodes)
+///         (b) link enrichment (incoming edges with linkPostId)
 contract LinkGraph {
     // ---------------------------------------------------------------------
     // Errors
     // ---------------------------------------------------------------------
 
-    error RegistryAlreadySet();
     error NotRegistry();
-    error NotOwner();
-    error ZeroAddress();
     error SelfLoop();
     error CycleDetected();
     error TraversalLimitExceeded();
-    error EdgeAlreadyExists();
 
     // ---------------------------------------------------------------------
     // Events
     // ---------------------------------------------------------------------
 
-    event RegistrySet(address indexed registry);
-    event EdgeAdded(uint256 indexed fromPostId, uint256 indexed toPostId);
+    event EdgeAdded(uint256 indexed fromPostId, uint256 indexed toPostId, uint256 indexed linkPostId);
+
+    // ---------------------------------------------------------------------
+    // Types
+    // ---------------------------------------------------------------------
+
+    struct IncomingEdge {
+        uint256 fromPostId;  // independent claim postId
+        uint256 linkPostId;  // the PostRegistry postId for the Link post
+    }
 
     // ---------------------------------------------------------------------
     // Storage
     // ---------------------------------------------------------------------
 
-    address public immutable owner;
-    address public registry;
+    address public immutable registry;
 
-    // postId => outgoing edges
+    // For cycle detection: postId => outgoing neighbor claimIds
     mapping(uint256 => uint256[]) private outgoing;
 
-    // Dedup: from => (to => bool)
-    mapping(uint256 => mapping(uint256 => bool)) private hasEdge;
+    // For enrichment: dependent claimId => list of (from, linkPostId)
+    mapping(uint256 => IncomingEdge[]) private incoming;
 
     // DFS bookkeeping
     mapping(uint256 => uint256) private visited;
@@ -48,62 +53,49 @@ contract LinkGraph {
     // Modifiers
     // ---------------------------------------------------------------------
 
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
-        _;
-    }
-
     modifier onlyRegistry() {
         if (msg.sender != registry) revert NotRegistry();
         _;
     }
 
     // ---------------------------------------------------------------------
-    // Constructor / setup
+    // Constructor
     // ---------------------------------------------------------------------
 
-    constructor(address owner_) {
-        if (owner_ == address(0)) revert ZeroAddress();
-        owner = owner_;
-    }
-
-    /// @notice One-time registry binding (admin-controlled)
-    function setRegistry(address registry_) external onlyOwner {
-        if (registry_ == address(0)) revert ZeroAddress();
-        if (registry != address(0)) revert RegistryAlreadySet();
+    constructor(address registry_) {
         registry = registry_;
-        emit RegistrySet(registry_);
     }
 
     // ---------------------------------------------------------------------
     // External API
     // ---------------------------------------------------------------------
 
-    /// @notice Adds edge `from -> to`, reverting if it creates a cycle.
-    function addEdge(uint256 fromPostId, uint256 toPostId) external onlyRegistry {
+    /// @notice Adds edge `from -> to` with associated `linkPostId`, reverting if it creates a cycle.
+    function addEdge(uint256 fromPostId, uint256 toPostId, uint256 linkPostId)
+        external
+        onlyRegistry
+    {
         if (fromPostId == toPostId) revert SelfLoop();
-
-        // Prevent duplicates (big gas + safety improvement)
-        if (hasEdge[fromPostId][toPostId]) revert EdgeAlreadyExists();
 
         // If path already exists: to -> ... -> from, this creates a cycle
         if (_pathExists(toPostId, fromPostId)) revert CycleDetected();
 
-        hasEdge[fromPostId][toPostId] = true;
         outgoing[fromPostId].push(toPostId);
-        emit EdgeAdded(fromPostId, toPostId);
+        incoming[toPostId].push(IncomingEdge({ fromPostId: fromPostId, linkPostId: linkPostId }));
+
+        emit EdgeAdded(fromPostId, toPostId, linkPostId);
     }
 
     function getOutgoing(uint256 postId) external view returns (uint256[] memory) {
         return outgoing[postId];
     }
 
-    function edgeExists(uint256 fromPostId, uint256 toPostId) external view returns (bool) {
-        return hasEdge[fromPostId][toPostId];
+    function getIncoming(uint256 postId) external view returns (IncomingEdge[] memory) {
+        return incoming[postId];
     }
 
     // ---------------------------------------------------------------------
-    // Internal DFS
+    // Internal DFS (bounded)
     // ---------------------------------------------------------------------
 
     function _pathExists(uint256 start, uint256 target) internal returns (bool) {
@@ -127,9 +119,7 @@ contract LinkGraph {
                 uint256 nxt = nbrs[i];
                 if (visited[nxt] == token) continue;
 
-                if (visitedCount >= MAX_VISITS) {
-                    revert TraversalLimitExceeded();
-                }
+                if (visitedCount >= MAX_VISITS) revert TraversalLimitExceeded();
 
                 visited[nxt] = token;
                 stack[sp++] = nxt;
