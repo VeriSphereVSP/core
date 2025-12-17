@@ -67,6 +67,7 @@ contract PostRegistry {
     error NotOwner();
     error LinkGraphAlreadySet();
     error LinkGraphNotSet();
+    error ZeroAddress();
 
     // ---------------------------------------------------------------------
     // Constructor / admin
@@ -76,27 +77,30 @@ contract PostRegistry {
         owner = msg.sender;
     }
 
+    /// @notice One-time LinkGraph setup.
+    /// @dev Also binds the LinkGraph's registry to this PostRegistry.
     function setLinkGraph(address linkGraph_) external {
         if (msg.sender != owner) revert NotOwner();
         if (address(linkGraph) != address(0)) revert LinkGraphAlreadySet();
-        if (linkGraph_ == address(0)) revert LinkGraphNotSet();
+        if (linkGraph_ == address(0)) revert ZeroAddress();
 
         linkGraph = LinkGraph(linkGraph_);
         emit LinkGraphSet(linkGraph_);
+
+        // Critical: prevents someone else from "claiming" the LinkGraph registry.
+        // LinkGraph now requires onlyOwner for this call.
+        linkGraph.setRegistry(address(this));
     }
 
     // ---------------------------------------------------------------------
     // Post Creation
     // ---------------------------------------------------------------------
 
-    function createClaim(string calldata text)
-        external
-        returns (uint256 postId)
-    {
+    function createClaim(string calldata text) external returns (uint256 postId) {
         if (bytes(text).length == 0) revert InvalidClaim();
 
         uint256 claimId = claims.length;
-        claims.push(Claim({ text: text }));
+        claims.push(Claim({text: text}));
 
         postId = nextPostId++;
         posts[postId] = Post({
@@ -117,25 +121,20 @@ contract PostRegistry {
         if (!_exists(independentPostId)) revert IndependentPostDoesNotExist();
         if (!_exists(dependentPostId)) revert DependentPostDoesNotExist();
 
-        if (posts[independentPostId].contentType != ContentType.Claim)
-            revert IndependentMustBeClaim();
-
-        if (posts[dependentPostId].contentType != ContentType.Claim)
-            revert DependentMustBeClaim();
+        if (posts[independentPostId].contentType != ContentType.Claim) revert IndependentMustBeClaim();
+        if (posts[dependentPostId].contentType != ContentType.Claim) revert DependentMustBeClaim();
 
         if (address(linkGraph) == address(0)) revert LinkGraphNotSet();
 
-        // 🔐 DAG enforcement
+        // 🔐 DAG enforcement (no ordering assumptions)
         linkGraph.addEdge(independentPostId, dependentPostId);
 
         uint256 linkId = links.length;
-        links.push(
-            Link({
-                independentPostId: independentPostId,
-                dependentPostId: dependentPostId,
-                isChallenge: isChallenge
-            })
-        );
+        links.push(Link({
+            independentPostId: independentPostId,
+            dependentPostId: dependentPostId,
+            isChallenge: isChallenge
+        }));
 
         postId = nextPostId++;
         posts[postId] = Post({
@@ -152,28 +151,16 @@ contract PostRegistry {
     // Views
     // ---------------------------------------------------------------------
 
-    function getPost(uint256 postId)
-        external
-        view
-        returns (address, uint256, ContentType, uint256)
-    {
+    function getPost(uint256 postId) external view returns (address, uint256, ContentType, uint256) {
         Post storage p = posts[postId];
         return (p.creator, p.timestamp, p.contentType, p.contentId);
     }
 
-    function getClaim(uint256 claimId)
-        external
-        view
-        returns (string memory)
-    {
+    function getClaim(uint256 claimId) external view returns (string memory) {
         return claims[claimId].text;
     }
 
-    function getLink(uint256 linkId)
-        external
-        view
-        returns (uint256, uint256, bool)
-    {
+    function getLink(uint256 linkId) external view returns (uint256, uint256, bool) {
         Link storage l = links[linkId];
         return (l.independentPostId, l.dependentPostId, l.isChallenge);
     }
