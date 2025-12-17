@@ -12,13 +12,13 @@ contract LinkGraphAcyclicTest is Test {
     uint256 constant MAX_CLAIMS = 20;
 
     function setUp() public {
-        // Deploy graph with owner = this test
-        graph = new LinkGraph(address(this));
-
-        // Deploy registry
+        // Deploy registry FIRST
         registry = new PostRegistry();
 
-        // Bind graph <-> registry
+        // Deploy graph with registry as the only caller
+        graph = new LinkGraph(address(registry));
+
+        // Bind registry -> graph
         registry.setLinkGraph(address(graph));
     }
 
@@ -28,7 +28,9 @@ contract LinkGraphAcyclicTest is Test {
 
     function _createClaims(uint256 n) internal {
         for (uint256 i = 0; i < n; i++) {
-            registry.createClaim(string(abi.encodePacked("claim-", i)));
+            registry.createClaim(
+                string(abi.encodePacked("claim-", vm.toString(i)))
+            );
         }
     }
 
@@ -80,8 +82,13 @@ contract LinkGraphAcyclicTest is Test {
 
         // Randomized link attempts
         for (uint256 i = 0; i < 200; i++) {
-            uint256 from = uint256(keccak256(abi.encode(seed, i, "from"))) % claimCount;
-            uint256 to   = uint256(keccak256(abi.encode(seed, i, "to")))   % claimCount;
+            uint256 from = uint256(
+                keccak256(abi.encode(seed, i, "from"))
+            ) % claimCount;
+
+            uint256 to = uint256(
+                keccak256(abi.encode(seed, i, "to"))
+            ) % claimCount;
 
             if (from == to) continue;
 
@@ -90,7 +97,7 @@ contract LinkGraphAcyclicTest is Test {
                 // If it succeeded, assert global invariant
                 _assertAcyclic();
             } catch {
-                // Revert is expected when cycle would be formed
+                // Revert is expected when a cycle would be formed
             }
         }
 
