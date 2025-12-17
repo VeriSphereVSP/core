@@ -4,7 +4,10 @@ pragma solidity ^0.8.20;
 import "./LinkGraph.sol";
 
 contract PostRegistry {
-    enum ContentType { Claim, Link }
+    enum ContentType {
+        Claim,
+        Link
+    }
 
     struct Post {
         address creator;
@@ -13,7 +16,9 @@ contract PostRegistry {
         uint256 contentId;
     }
 
-    struct Claim { string text; }
+    struct Claim {
+        string text;
+    }
 
     struct Link {
         uint256 independentPostId;
@@ -22,6 +27,7 @@ contract PostRegistry {
     }
 
     mapping(uint256 => Post) private posts;
+
     Claim[] private claims;
     Link[] private links;
 
@@ -38,16 +44,20 @@ contract PostRegistry {
     error DependentPostDoesNotExist();
     error IndependentMustBeClaim();
     error DependentMustBeClaim();
+
     error NotOwner();
     error LinkGraphAlreadySet();
     error LinkGraphNotSet();
 
-    constructor() { owner = msg.sender; }
+    constructor() {
+        owner = msg.sender;
+    }
 
     function setLinkGraph(address linkGraph_) external {
         if (msg.sender != owner) revert NotOwner();
         if (address(linkGraph) != address(0)) revert LinkGraphAlreadySet();
         if (linkGraph_ == address(0)) revert LinkGraphNotSet();
+
         linkGraph = LinkGraph(linkGraph_);
         emit LinkGraphSet(linkGraph_);
     }
@@ -56,7 +66,7 @@ contract PostRegistry {
         if (bytes(text).length == 0) revert InvalidClaim();
 
         uint256 claimId = claims.length;
-        claims.push(Claim({ text: text }));
+        claims.push(Claim({text: text}));
 
         postId = nextPostId++;
         posts[postId] = Post({
@@ -82,14 +92,12 @@ contract PostRegistry {
 
         if (address(linkGraph) == address(0)) revert LinkGraphNotSet();
 
-        uint256 linkId = links.length;
-        links.push(Link({
-            independentPostId: independentPostId,
-            dependentPostId: dependentPostId,
-            isChallenge: isChallenge
-        }));
-
+        // Allocate link postId first (safe because revert rolls back)
         postId = nextPostId++;
+
+        uint256 linkId = links.length;
+        links.push(Link({independentPostId: independentPostId, dependentPostId: dependentPostId, isChallenge: isChallenge}));
+
         posts[postId] = Post({
             creator: msg.sender,
             timestamp: block.timestamp,
@@ -97,8 +105,8 @@ contract PostRegistry {
             contentId: linkId
         });
 
-        // 🔐 DAG enforcement + incoming index
-        linkGraph.addEdge(independentPostId, dependentPostId, postId);
+        // 🔐 DAG enforcement + metadata storage
+        linkGraph.addEdge(independentPostId, dependentPostId, postId, isChallenge);
 
         emit PostCreated(postId, msg.sender, ContentType.Link);
     }
