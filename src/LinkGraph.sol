@@ -2,16 +2,16 @@
 pragma solidity ^0.8.20;
 
 /// @title LinkGraph
-/// @notice Enforces a DAG over claim-to-claim edges and indexes incoming edges by dependent claim.
-///         Stores adjacency for:
-///         (a) cycle detection (outgoing nodes)
-///         (b) link enrichment (incoming edges with linkPostId)
+/// @notice Enforces a DAG over claim-to-claim links.
+///         Stores adjacency + minimal edge metadata for read APIs.
 contract LinkGraph {
     // ---------------------------------------------------------------------
     // Errors
     // ---------------------------------------------------------------------
 
+    error RegistryAlreadySet();
     error NotRegistry();
+    error NotOwner();
     error SelfLoop();
     error CycleDetected();
     error TraversalLimitExceeded();
@@ -20,27 +20,41 @@ contract LinkGraph {
     // Events
     // ---------------------------------------------------------------------
 
-    event EdgeAdded(uint256 indexed fromPostId, uint256 indexed toPostId, uint256 indexed linkPostId);
+    event RegistrySet(address indexed registry);
+    event EdgeAdded(
+        uint256 indexed fromClaimPostId,
+        uint256 indexed toClaimPostId,
+        uint256 indexed linkPostId,
+        bool isChallenge
+    );
 
     // ---------------------------------------------------------------------
     // Types
     // ---------------------------------------------------------------------
 
+    struct Edge {
+        uint256 toClaimPostId;
+        uint256 linkPostId;
+        bool isChallenge;
+    }
+
     struct IncomingEdge {
-        uint256 fromPostId;  // independent claim postId
-        uint256 linkPostId;  // the PostRegistry postId for the Link post
+        uint256 fromClaimPostId;
+        uint256 linkPostId;
+        bool isChallenge;
     }
 
     // ---------------------------------------------------------------------
     // Storage
     // ---------------------------------------------------------------------
 
-    address public immutable registry;
+    address public owner;
+    address public registry;
 
-    // For cycle detection: postId => outgoing neighbor claimIds
-    mapping(uint256 => uint256[]) private outgoing;
+    // claimPostId => outgoing edges
+    mapping(uint256 => Edge[]) private outgoing;
 
-    // For enrichment: dependent claimId => list of (from, linkPostId)
+    // claimPostId => incoming edges
     mapping(uint256 => IncomingEdge[]) private incoming;
 
     // DFS bookkeeping
@@ -58,44 +72,73 @@ contract LinkGraph {
         _;
     }
 
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert NotOwner();
+        _;
+    }
+
     // ---------------------------------------------------------------------
-    // Constructor
+    // Constructor / setup
     // ---------------------------------------------------------------------
 
-    constructor(address registry_) {
+    constructor(address owner_) {
+        owner = owner_;
+    }
+
+    function setRegistry(address registry_) external onlyOwner {
+        if (registry != address(0)) revert RegistryAlreadySet();
         registry = registry_;
+        emit RegistrySet(registry_);
     }
 
     // ---------------------------------------------------------------------
     // External API
     // ---------------------------------------------------------------------
 
-    /// @notice Adds edge `from -> to` with associated `linkPostId`, reverting if it creates a cycle.
-    function addEdge(uint256 fromPostId, uint256 toPostId, uint256 linkPostId)
-        external
-        onlyRegistry
-    {
-        if (fromPostId == toPostId) revert SelfLoop();
+    /// @notice Adds edge `from -> to`, reverting if it creates a cycle.
+    /// @dev Only the registry may call.
+    function addEdge(
+        uint256 fromClaimPostId,
+        uint256 toClaimPostId,
+        uint256 linkPostId,
+        bool isChallenge
+    ) external onlyRegistry {
+        if (fromClaimPostId == toClaimPostId) revert SelfLoop();
 
         // If path already exists: to -> ... -> from, this creates a cycle
-        if (_pathExists(toPostId, fromPostId)) revert CycleDetected();
+        if (_pathExists(toClaimPostId, fromClaimPostId)) revert CycleDetected();
 
-        outgoing[fromPostId].push(toPostId);
-        incoming[toPostId].push(IncomingEdge({ fromPostId: fromPostId, linkPostId: linkPostId }));
+        outgoing[fromClaimPostId].push(
+            Edge({toClaimPostId: toClaimPostId, linkPostId: linkPostId, isChallenge: isChallenge})
+        );
 
-        emit EdgeAdded(fromPostId, toPostId, linkPostId);
+        incoming[toClaimPostId].push(
+            IncomingEdge({fromClaimPostId: fromClaimPostId, linkPostId: linkPostId, isChallenge: isChallenge})
+        );
+
+        emit EdgeAdded(fromClaimPostId, toClaimPostId, linkPostId, isChallenge);
     }
 
-    function getOutgoing(uint256 postId) external view returns (uint256[] memory) {
-        return outgoing[postId];
+    function getOutgoing(uint256 claimPostId) external view returns (Edge[] memory) {
+        return outgoing[claimPostId];
     }
 
-    function getIncoming(uint256 postId) external view returns (IncomingEdge[] memory) {
-        return incoming[postId];
+    function getIncoming(uint256 claimPostId) external view returns (IncomingEdge[] memory) {
+        return incoming[claimPostId];
+    }
+
+    /// Convenience for tests / indexers that only want adjacency.
+    function getOutgoingClaims(uint256 claimPostId) external view returns (uint256[] memory) {
+        Edge[] storage edges = outgoing[claimPostId];
+        uint256[] memory tos = new uint256[](edges.length);
+        for (uint256 i = 0; i < edges.length; i++) {
+            tos[i] = edges[i].toClaimPostId;
+        }
+        return tos;
     }
 
     // ---------------------------------------------------------------------
-    // Internal DFS (bounded)
+    // Internal DFS
     // ---------------------------------------------------------------------
 
     function _pathExists(uint256 start, uint256 target) internal returns (bool) {
@@ -114,9 +157,9 @@ contract LinkGraph {
             uint256 node = stack[--sp];
             if (node == target) return true;
 
-            uint256[] storage nbrs = outgoing[node];
+            Edge[] storage nbrs = outgoing[node];
             for (uint256 i = 0; i < nbrs.length; i++) {
-                uint256 nxt = nbrs[i];
+                uint256 nxt = nbrs[i].toClaimPostId;
                 if (visited[nxt] == token) continue;
 
                 if (visitedCount >= MAX_VISITS) revert TraversalLimitExceeded();
