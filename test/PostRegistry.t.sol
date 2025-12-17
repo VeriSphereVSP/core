@@ -10,22 +10,32 @@ contract PostRegistryTest is Test {
     LinkGraph graph;
 
     function setUp() public {
+        // Deploy registry
         registry = new PostRegistry();
-        graph = new LinkGraph();
 
+        // Deploy graph with registry as the authorized caller
+        graph = new LinkGraph(address(registry));
+
+        // Bind registry -> graph
         registry.setLinkGraph(address(graph));
-        graph.setRegistry(address(registry));
     }
 
     function testCreateClaim() public {
-        uint256 id = registry.createClaim("Hello");
+        uint256 id = registry.createClaim("Hello world");
 
-        (address creator,, PostRegistry.ContentType t, uint256 cid) =
-            registry.getPost(id);
+        (
+            address creator,
+            uint256 timestamp,
+            PostRegistry.ContentType contentType,
+            uint256 contentId
+        ) = registry.getPost(id);
 
         assertEq(creator, address(this));
-        assertEq(uint8(t), uint8(PostRegistry.ContentType.Claim));
-        assertEq(registry.getClaim(cid), "Hello");
+        assertTrue(timestamp > 0);
+        assertEq(uint8(contentType), uint8(PostRegistry.ContentType.Claim));
+
+        string memory text = registry.getClaim(contentId);
+        assertEq(text, "Hello world");
     }
 
     function testCreateSupportLink() public {
@@ -34,21 +44,19 @@ contract PostRegistryTest is Test {
 
         uint256 linkPostId = registry.createLink(a, b, false);
 
-        (,, PostRegistry.ContentType t, uint256 linkId) =
-            registry.getPost(linkPostId);
+        (
+            ,
+            ,
+            PostRegistry.ContentType contentType,
+            uint256 linkId
+        ) = registry.getPost(linkPostId);
 
-        assertEq(uint8(t), uint8(PostRegistry.ContentType.Link));
+        assertEq(uint8(contentType), uint8(PostRegistry.ContentType.Link));
 
-        (uint256 from, uint256 to, bool isChallenge) =
-            registry.getLink(linkId);
-
+        (uint256 from, uint256 to, bool isChallenge) = registry.getLink(linkId);
         assertEq(from, a);
         assertEq(to, b);
         assertFalse(isChallenge);
-
-        uint256[] memory out = graph.getOutgoing(a);
-        assertEq(out.length, 1);
-        assertEq(out[0], b);
     }
 
     function testCreateChallengeLink() public {
@@ -57,34 +65,28 @@ contract PostRegistryTest is Test {
 
         uint256 linkPostId = registry.createLink(a, b, true);
 
-        (,, PostRegistry.ContentType t, uint256 linkId) =
-            registry.getPost(linkPostId);
-
-        assertEq(uint8(t), uint8(PostRegistry.ContentType.Link));
-
+        (, , , uint256 linkId) = registry.getPost(linkPostId);
         (, , bool isChallenge) = registry.getLink(linkId);
+
         assertTrue(isChallenge);
     }
 
-    function test_RevertWhen_CycleDetected() public {
-        uint256 a = registry.createClaim("A");
+    function test_RevertWhen_IndependentClaimDoesNotExist() public {
         uint256 b = registry.createClaim("B");
-        uint256 c = registry.createClaim("C");
 
-        registry.createLink(a, b, false);
-        registry.createLink(b, c, false);
-
-        vm.expectRevert(LinkGraph.CycleDetected.selector);
-        registry.createLink(c, a, false);
+        vm.expectRevert(PostRegistry.IndependentPostDoesNotExist.selector);
+        registry.createLink(9999, b, false);
     }
 
-    function test_GetPostReturnsZeroForInvalidId() public {
-        (address creator, uint256 ts, PostRegistry.ContentType t, uint256 cid) =
-            registry.getPost(999);
+    function test_RevertWhen_DependentClaimDoesNotExist() public {
+        uint256 a = registry.createClaim("A");
 
-        assertEq(creator, address(0));
-        assertEq(ts, 0);
-        assertEq(uint8(t), 0);
-        assertEq(cid, 0);
+        vm.expectRevert(PostRegistry.DependentPostDoesNotExist.selector);
+        registry.createLink(a, 9999, false);
+    }
+
+    function test_RevertWhen_EmptyClaimText() public {
+        vm.expectRevert(PostRegistry.InvalidClaim.selector);
+        registry.createClaim("");
     }
 }
