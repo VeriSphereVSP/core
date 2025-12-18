@@ -16,7 +16,7 @@ contract MockVSP {
 
     function mint(address to, uint256 amt) external { balanceOf[to] += amt; }
 
-    // Added for completeness (StakeEngine uses these during updatePost, though this test does not call it)
+    // Added for completeness (StakeEngine uses these during updatePost)
     function burn(uint256 amt) external {
         require(balanceOf[msg.sender] >= amt, "burn");
         balanceOf[msg.sender] -= amt;
@@ -89,7 +89,9 @@ contract ProtocolViewsTest is Test {
 
         stake.stake(c0, 1, 50);
         int256 vs2 = views.getBaseVS(c0);
-        assertEq(vs2, int256(1e18 / 3));
+
+        // VS = (100-50)/150 = 1/3 => 1e18/3 (avoid rational-const cast)
+        assertEq(vs2, int256(uint256(1e18) / 3));
     }
 
     function test_IncomingAndOutgoingEdgesContainMetadata() public {
