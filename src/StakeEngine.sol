@@ -5,23 +5,25 @@ import "./interfaces/IVSPToken.sol";
 
 /// @title StakeEngine
 /// @notice Handles staking, queue positions, and epoch-based growth/decay.
-/// All stake totals live here; PostRegistry is unaware of stake.
+///         This version settles each epoch symmetrically:
+///         - Winners: lot.amount increases; VSP is minted to this contract.
+///         - Losers:  lot.amount decreases (capped at principal); VSP is burned from this contract.
+///         Gains/losses accrue to the queue to preserve the “queue-shape feedback” mechanic.
 contract StakeEngine {
     // ------------------------------------------------------------------------
     // Constants & Types
     // ------------------------------------------------------------------------
-
     uint8 public constant SIDE_SUPPORT = 0;
     uint8 public constant SIDE_CHALLENGE = 1;
 
     struct StakeLot {
         address staker;
         uint256 amount;
-        uint8 side; // 0 = support, 1 = challenge
-        uint256 begin; // queue-position start
-        uint256 end; // queue-position end
-        uint256 mid; // (begin + end) / 2
-        uint256 entryEpoch; // epoch when the lot was created
+        uint8 side;        // 0 = support, 1 = challenge
+        uint256 begin;     // queue-position start
+        uint256 end;       // queue-position end
+        uint256 mid;       // (begin + end) / 2
+        uint256 entryEpoch;
     }
 
     struct SideQueue {
@@ -37,7 +39,6 @@ contract StakeEngine {
     // ------------------------------------------------------------------------
     // Storage
     // ------------------------------------------------------------------------
-
     IVSPToken public immutable VSP_TOKEN;
 
     // postId => state
@@ -51,11 +52,11 @@ contract StakeEngine {
     uint256 public constant YEAR_IN_SECONDS = 365 days;
 
     // Economic parameters (ray = 1e18)
-    uint256 public constant R_MIN_ANNUAL = 0; // 0% baseline when VS is 0
-    uint256 public constant R_MAX_ANNUAL = 50e16; // 50% APY max (0.5 * 1e18)
-    uint256 public constant P_MIN = 1e17; // 0.1
-    uint256 public constant P_MAX = 1e18; // 1.0
-    uint256 public constant ALPHA = 1; // P_raw = xRay^1
+    uint256 public constant R_MIN_ANNUAL = 0;       // 0% baseline when VS is 0
+    uint256 public constant R_MAX_ANNUAL = 50e16;   // 50% APY max (0.5 * 1e18)
+    uint256 public constant P_MIN = 1e17;           // 0.1
+    uint256 public constant P_MAX = 1e18;           // 1.0
+    uint256 public constant ALPHA = 1;              // P_raw = xRay^1
 
     // If T < postingFeeThreshold, treat post as economically neutral.
     uint256 public postingFeeThreshold;
@@ -63,7 +64,6 @@ contract StakeEngine {
     // ------------------------------------------------------------------------
     // Errors
     // ------------------------------------------------------------------------
-
     error InvalidSide();
     error AmountZero();
     error NotEnoughStake();
@@ -72,17 +72,15 @@ contract StakeEngine {
     // ------------------------------------------------------------------------
     // Events
     // ------------------------------------------------------------------------
-
     event StakeAdded(uint256 indexed postId, address indexed staker, uint8 side, uint256 amount);
-
     event StakeWithdrawn(uint256 indexed postId, address indexed staker, uint8 side, uint256 amount, bool lifo);
-
     event PostUpdated(uint256 indexed postId, uint256 epoch, uint256 supportTotal, uint256 challengeTotal);
+    event EpochMinted(uint256 indexed postId, uint256 amount);
+    event EpochBurned(uint256 indexed postId, uint256 amount);
 
     // ------------------------------------------------------------------------
     // Constructor
     // ------------------------------------------------------------------------
-
     constructor(address vspToken_) {
         if (vspToken_ == address(0)) revert ZeroAddressToken();
         VSP_TOKEN = IVSPToken(vspToken_);
@@ -91,7 +89,6 @@ contract StakeEngine {
     // ------------------------------------------------------------------------
     // External API: Stake / Withdraw
     // ------------------------------------------------------------------------
-
     /// @notice Stake VSP on a post, on either support or challenge side.
     function stake(uint256 postId, uint8 side, uint256 amount) external {
         if (amount == 0) revert AmountZero();
@@ -110,7 +107,6 @@ contract StakeEngine {
         }
 
         _addLot(postId, side, amount, msg.sender);
-
         emit StakeAdded(postId, msg.sender, side, amount);
     }
 
@@ -124,7 +120,6 @@ contract StakeEngine {
 
         uint256 remaining = amount;
         uint256 len = q.lots.length;
-
         if (len == 0) revert NotEnoughStake();
 
         if (lifo) {
@@ -153,7 +148,7 @@ contract StakeEngine {
 
         if (remaining > 0) revert NotEnoughStake();
 
-        // Recompute queue positions and global totals for this post
+        // Recompute queue positions and totals
         _recomputePostTotals(postId);
 
         // Return VSP to user
@@ -166,7 +161,6 @@ contract StakeEngine {
     // ------------------------------------------------------------------------
     // External API: Epoch update
     // ------------------------------------------------------------------------
-
     /// @notice Apply growth/decay for all lots on a post based on the last epochs.
     /// @dev Anyone may call; typically a keeper or backend.
     function updatePost(uint256 postId) external {
@@ -193,7 +187,7 @@ contract StakeEngine {
 
         uint256 A = qs.total; // support
         uint256 D = qc.total; // challenge
-        uint256 T = A + D; // total stake
+        uint256 T = A + D;    // total stake
 
         if (T == 0 || sMax == 0 || T < postingFeeThreshold) {
             ps.lastUpdatedEpoch = epoch;
@@ -210,10 +204,10 @@ contract StakeEngine {
         bool supportWins = vsNumerator > 0;
         uint256 absVS = uint256(vsNumerator > 0 ? vsNumerator : -vsNumerator);
 
-        // vRay = absVS / T        (0..1 in ray)
+        // vRay = absVS / T (0..1 in ray)
         uint256 vRay = (absVS * 1e18) / T;
 
-        // xRay = T / sMax         (0..1 in ray)
+        // xRay = T / sMax (0..1 in ray)
         uint256 xRay = (T * 1e18) / sMax;
 
         // P_raw = xRay^ALPHA; with ALPHA = 1 => P_raw = xRay
@@ -223,6 +217,7 @@ contract StakeEngine {
         // Convert annual rates to per-epoch (scaled by epochsElapsed)
         uint256 rMinEpoch = (R_MIN_ANNUAL * EPOCH_LENGTH * epochsElapsed) / YEAR_IN_SECONDS;
         uint256 rMaxEpoch = (R_MAX_ANNUAL * EPOCH_LENGTH * epochsElapsed) / YEAR_IN_SECONDS;
+
         uint256 rSpan = rMaxEpoch > rMinEpoch ? (rMaxEpoch - rMinEpoch) : 0;
 
         // rEff = rMinEpoch + rSpan * vRay * pRay / 1e36
@@ -233,22 +228,35 @@ contract StakeEngine {
             rEff += tmp;
         }
 
-        // Apply to both sides
-        _applyEpochToSide(qs, supportWins, true, rEff);
-        _applyEpochToSide(qc, supportWins, false, rEff);
+        // Apply to both sides and aggregate mint/burn deltas
+        (uint256 mintS, uint256 burnS) = _applyEpochToSide(qs, supportWins, true, rEff);
+        (uint256 mintC, uint256 burnC) = _applyEpochToSide(qc, supportWins, false, rEff);
 
-        // Recompute and update sMax
+        uint256 totalMint = mintS + mintC;
+        uint256 totalBurn = burnS + burnC;
+
+        // Keep contract balance aligned with queue totals:
+        // - winners increase lot.amount => mint to this contract
+        // - losers decrease lot.amount => burn from this contract
+        if (totalMint > 0) {
+            VSP_TOKEN.mint(address(this), totalMint);
+            emit EpochMinted(postId, totalMint);
+        }
+        if (totalBurn > 0) {
+            VSP_TOKEN.burn(totalBurn);
+            emit EpochBurned(postId, totalBurn);
+        }
+
+        // Recompute and update totals + sMax
         _recomputePostTotals(postId);
 
         ps.lastUpdatedEpoch = epoch;
-
         emit PostUpdated(postId, epoch, qs.total, qc.total);
     }
 
     // ------------------------------------------------------------------------
     // Views
     // ------------------------------------------------------------------------
-
     function getPostTotals(uint256 postId) external view returns (uint256 supportTotal, uint256 challengeTotal) {
         PostState storage ps = posts[postId];
         supportTotal = ps.sides[SIDE_SUPPORT].total;
@@ -263,7 +271,6 @@ contract StakeEngine {
     // ------------------------------------------------------------------------
     // Internal helpers
     // ------------------------------------------------------------------------
-
     function _currentEpoch() internal view returns (uint256) {
         return block.timestamp / EPOCH_LENGTH;
     }
@@ -274,8 +281,6 @@ contract StakeEngine {
 
         uint256 newTotal = q.total + amount;
 
-        // Queue is counted from last to first logically:
-        // begin = old total, end = new total, mid = average.
         StakeLot memory lot = StakeLot({
             staker: staker,
             amount: amount,
@@ -292,10 +297,8 @@ contract StakeEngine {
         // Update global sMax (monotonic)
         uint256 A = ps.sides[SIDE_SUPPORT].total;
         uint256 C = ps.sides[SIDE_CHALLENGE].total;
-        uint256 T = A + C;
-        if (T > sMax) {
-            sMax = T;
-        }
+        uint256 TT = A + C;
+        if (TT > sMax) sMax = TT;
     }
 
     function _recomputePostTotals(uint256 postId) internal {
@@ -303,11 +306,9 @@ contract StakeEngine {
 
         uint256 A = _recomputeSide(ps.sides[SIDE_SUPPORT]);
         uint256 C = _recomputeSide(ps.sides[SIDE_CHALLENGE]);
+        uint256 TT = A + C;
 
-        uint256 T = A + C;
-        if (T > sMax) {
-            sMax = T;
-        }
+        if (TT > sMax) sMax = TT;
     }
 
     function _recomputeSide(SideQueue storage q) internal returns (uint256 total) {
@@ -342,8 +343,13 @@ contract StakeEngine {
         return cursor;
     }
 
-    function _applyEpochToSide(SideQueue storage q, bool supportWins, bool isSupportSide, uint256 rEff) internal {
-        if (q.total == 0 || rEff == 0 || sMax == 0) return;
+    function _applyEpochToSide(
+        SideQueue storage q,
+        bool supportWins,
+        bool isSupportSide,
+        uint256 rEff
+    ) internal returns (uint256 minted, uint256 burned) {
+        if (q.total == 0 || rEff == 0 || sMax == 0) return (0, 0);
 
         bool aligned = (supportWins && isSupportSide) || (!supportWins && !isSupportSide);
 
@@ -366,10 +372,16 @@ contract StakeEngine {
 
             if (aligned) {
                 lot.amount += delta;
+                minted += delta;
             } else {
-                lot.amount = delta >= lot.amount ? 0 : lot.amount - delta;
+                // Limited liability: cannot lose more than remaining principal
+                uint256 loss = delta >= lot.amount ? lot.amount : delta;
+                lot.amount -= loss;
+                burned += loss;
             }
         }
+
+        return (minted, burned);
     }
 
     function _clamp(uint256 x, uint256 minVal, uint256 maxVal) internal pure returns (uint256) {
@@ -378,4 +390,3 @@ contract StakeEngine {
         return x;
     }
 }
-
