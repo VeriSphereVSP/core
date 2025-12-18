@@ -44,7 +44,7 @@ contract ScoreEngine {
         LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(dependentClaimPostId);
 
         for (uint256 i = 0; i < inc.length; i++) {
-            uint256 from = inc[i].fromPostId;
+            uint256 from = inc[i].fromClaimPostId;
             uint256 linkPostId = inc[i].linkPostId;
 
             // Independent must be a claim (graph is claim-only, but keep it safe)
