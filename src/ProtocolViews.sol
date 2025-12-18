@@ -75,7 +75,10 @@ contract ProtocolViews {
             int256 baseVsRay
         )
     {
-        (creator, timestamp, PostRegistry.ContentType ct, uint256 contentId) = registry.getPost(claimPostId);
+        PostRegistry.ContentType ct;
+        uint256 contentId;
+
+        (creator, timestamp, ct, contentId) = registry.getPost(claimPostId);
         require(ct == PostRegistry.ContentType.Claim, "not claim");
 
         text = registry.getClaim(contentId);
