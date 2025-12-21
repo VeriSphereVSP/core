@@ -9,128 +9,96 @@ import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
 
-// Minimal ERC20-ish mock for StakeEngine
-contract MockVSP {
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
-
-    function mint(address to, uint256 amt) external { balanceOf[to] += amt; }
-
-    // Added for completeness (StakeEngine uses these during updatePost)
-    function burn(uint256 amt) external {
-        require(balanceOf[msg.sender] >= amt, "burn");
-        balanceOf[msg.sender] -= amt;
-    }
-
-    function burnFrom(address from, uint256 amt) external {
-        require(allowance[from][msg.sender] >= amt, "allow");
-        require(balanceOf[from] >= amt, "burn");
-        allowance[from][msg.sender] -= amt;
-        balanceOf[from] -= amt;
-    }
-
-    function approve(address spender, uint256 amt) external returns (bool) {
-        allowance[msg.sender][spender] = amt;
-        return true;
-    }
-
-    function transferFrom(address from, address to, uint256 amt) external returns (bool) {
-        require(balanceOf[from] >= amt, "bal");
-        require(allowance[from][msg.sender] >= amt, "allow");
-        allowance[from][msg.sender] -= amt;
-        balanceOf[from] -= amt;
-        balanceOf[to] += amt;
-        return true;
-    }
-
-    function transfer(address to, uint256 amt) external returns (bool) {
-        require(balanceOf[msg.sender] >= amt, "bal");
-        balanceOf[msg.sender] -= amt;
-        balanceOf[to] += amt;
-        return true;
-    }
-}
+// This assumes you already have MockVSP in your test suite (as shown in your traces).
+import "./mocks/MockVSP.sol";
 
 contract ProtocolViewsTest is Test {
     PostRegistry registry;
     LinkGraph graph;
+    MockVSP vsp;
     StakeEngine stake;
     ScoreEngine score;
-    ProtocolViews views;
-    MockVSP vsp;
+    ProtocolViews views_;
 
     function setUp() public {
-        graph = new LinkGraph(address(this));
-
         registry = new PostRegistry();
+        graph = new LinkGraph();
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
 
         vsp = new MockVSP();
         stake = new StakeEngine(address(vsp));
+        score = new ScoreEngine(address(registry), address(stake), address(graph));
 
-        score = new ScoreEngine(address(registry), address(graph), address(stake));
-
-        views = new ProtocolViews(address(registry), address(stake), address(graph), address(score));
+        views_ = new ProtocolViews(address(registry), address(stake), address(graph), address(score));
 
         vsp.mint(address(this), 1e30);
         vsp.approve(address(stake), type(uint256).max);
     }
 
-    function test_ClaimSummaryAndBaseVS() public {
-        uint256 c0 = registry.createClaim("A");
+    function test_ClaimSummaryAndRawRays() public {
+        uint256 a = registry.createClaim("Drug X is safe");
 
-        (, , , , , int256 vs0) = views.getClaimSummary(c0);
-        assertEq(vs0, 0);
+        ProtocolViews.ClaimSummary memory s0 = views_.getClaimSummary(a);
+        assertEq(s0.text, "Drug X is safe");
+        assertEq(s0.supportStake, 0);
+        assertEq(s0.challengeStake, 0);
+        assertEq(s0.baseVSRay, 0);
+        assertEq(s0.effectiveVSRay, 0);
+        assertEq(s0.incomingCount, 0);
+        assertEq(s0.outgoingCount, 0);
 
-        stake.stake(c0, 0, 100);
-        int256 vs1 = views.getBaseVS(c0);
-        assertEq(vs1, int256(1e18));
-
-        stake.stake(c0, 1, 50);
-        int256 vs2 = views.getBaseVS(c0);
-
-        // VS = (100-50)/150 = 1/3 => 1e18/3 (avoid rational-const cast)
-        assertEq(vs2, int256(uint256(1e18) / 3));
-    }
-
-    function test_IncomingAndOutgoingEdgesContainMetadata() public {
-        uint256 a = registry.createClaim("A");
-        uint256 b = registry.createClaim("B");
-        uint256 linkPostId = registry.createLink(a, b, false);
-
-        LinkGraph.Edge[] memory outA = views.getOutgoingEdges(a);
-        assertEq(outA.length, 1);
-        assertEq(outA[0].toClaimPostId, b);
-        assertEq(outA[0].linkPostId, linkPostId);
-        assertEq(outA[0].isChallenge, false);
-
-        LinkGraph.IncomingEdge[] memory inB = views.getIncomingEdges(b);
-        assertEq(inB.length, 1);
-        assertEq(inB[0].fromClaimPostId, a);
-        assertEq(inB[0].linkPostId, linkPostId);
-        assertEq(inB[0].isChallenge, false);
-    }
-
-    function test_BaseVSPercentScaling() public {
-        uint256 c0 = registry.createClaim("A");
-        stake.stake(c0, 0, 75);
-        stake.stake(c0, 1, 25);
-
-        int256 vsPct = views.getBaseVSPercent(c0);
-        assertEq(vsPct, 50);
-    }
-
-    function test_EffectiveVS_DelegatesToScoreEngine() public {
-        uint256 a = registry.createClaim("A");
-        uint256 b = registry.createClaim("B");
-
+        // stake support on claim -> baseVS should move positive
         stake.stake(a, 0, 100);
+        ProtocolViews.ClaimSummary memory s1 = views_.getClaimSummary(a);
+        assertEq(s1.supportStake, 100);
+        assertEq(s1.challengeStake, 0);
+        assertEq(s1.baseVSRay, 1e18);     // full support => +1.0 in ray
+        assertEq(s1.effectiveVSRay, 1e18);
+    }
 
-        uint256 linkPostId = registry.createLink(a, b, false);
+    function test_OutgoingIncomingEdgesContainMetadata() public {
+        uint256 ic = registry.createClaim("Study S showed minimal adverse effects from drug X");
+        uint256 dc = registry.createClaim("Drug X is safe");
+
+        uint256 linkPostId = registry.createLink(ic, dc, false);
+
+        LinkGraph.Edge[] memory out = views_.getOutgoingEdges(ic);
+        assertEq(out.length, 1);
+        assertEq(out[0].toClaimPostId, dc);
+        assertEq(out[0].linkPostId, linkPostId);
+        assertEq(out[0].isChallenge, false);
+
+        LinkGraph.IncomingEdge[] memory inc = views_.getIncomingEdges(dc);
+        assertEq(inc.length, 1);
+        assertEq(inc[0].fromClaimPostId, ic);
+        assertEq(inc[0].linkPostId, linkPostId);
+        assertEq(inc[0].isChallenge, false);
+
+        (uint256 indep, uint256 dep, bool isChal) = views_.getLinkMeta(linkPostId);
+        assertEq(indep, ic);
+        assertEq(dep, dc);
+        assertEq(isChal, false);
+    }
+
+    function test_RawRayPassthroughsMatchScoreEngine() public {
+        uint256 ic = registry.createClaim("IC");
+        uint256 dc = registry.createClaim("DC");
+
+        // make IC positive
+        stake.stake(ic, 0, 100);
+
+        // link IC -> DC and stake link positively
+        uint256 linkPostId = registry.createLink(ic, dc, false);
         stake.stake(linkPostId, 0, 10);
 
-        int256 eff = views.getEffectiveVS(b);
-        assertTrue(eff > 0, "effective VS should be positive");
+        int256 bvsViews = views_.getBaseVSRay(dc);
+        int256 evsViews = views_.getEffectiveVSRay(dc);
+
+        int256 bvsScore = score.baseVSRay(dc);
+        int256 evsScore = score.effectiveVSRay(dc);
+
+        assertEq(bvsViews, bvsScore);
+        assertEq(evsViews, evsScore);
     }
 }
