@@ -2,14 +2,14 @@
 pragma solidity ^0.8.20;
 
 import "./interfaces/IVSPToken.sol";
-
+import "./interfaces/IStakeEngine.sol";
 /// @title StakeEngine
 /// @notice Handles staking, queue positions, and epoch-based growth/decay.
 ///         This version settles each epoch symmetrically:
 ///         - Winners: lot.amount increases; VSP is minted to this contract.
 ///         - Losers:  lot.amount decreases (capped at principal); VSP is burned from this contract.
 ///         Gains/losses accrue to the queue to preserve the “queue-shape feedback” mechanic.
-contract StakeEngine {
+contract StakeEngine is IStakeEngine {
     // ------------------------------------------------------------------------
     // Constants & Types
     // ------------------------------------------------------------------------
