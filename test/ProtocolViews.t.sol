@@ -3,35 +3,49 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 
+import "../src/authority/Authority.sol";
+import "../src/VSPToken.sol";
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
 
-// This assumes you already have MockVSP in your test suite (as shown in your traces).
-import "./mocks/MockVSP.sol";
-
 contract ProtocolViewsTest is Test {
+    Authority authority;
+    VSPToken vsp;
+
     PostRegistry registry;
     LinkGraph graph;
-    MockVSP vsp;
     StakeEngine stake;
     ScoreEngine score;
     ProtocolViews views_;
 
     function setUp() public {
+        // --- token + authority (real wiring)
+        authority = new Authority(address(this));
+        vsp = new VSPToken(address(authority));
+
+        authority.setMinter(address(this), true);
+        authority.setBurner(address(this), true);
+
+        // --- core protocol
         registry = new PostRegistry();
         graph = new LinkGraph();
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
 
-        vsp = new MockVSP();
         stake = new StakeEngine(address(vsp));
         score = new ScoreEngine(address(registry), address(stake), address(graph));
 
-        views_ = new ProtocolViews(address(registry), address(stake), address(graph), address(score));
+        views_ = new ProtocolViews(
+            address(registry),
+            address(stake),
+            address(graph),
+            address(score)
+        );
 
+        // --- fund test account
         vsp.mint(address(this), 1e30);
         vsp.approve(address(stake), type(uint256).max);
     }
@@ -48,17 +62,20 @@ contract ProtocolViewsTest is Test {
         assertEq(s0.incomingCount, 0);
         assertEq(s0.outgoingCount, 0);
 
-        // stake support on claim -> baseVS should move positive
+        // stake support on claim → baseVS should move positive
         stake.stake(a, 0, 100);
+
         ProtocolViews.ClaimSummary memory s1 = views_.getClaimSummary(a);
         assertEq(s1.supportStake, 100);
         assertEq(s1.challengeStake, 0);
-        assertEq(s1.baseVSRay, 1e18);     // full support => +1.0 in ray
+        assertEq(s1.baseVSRay, 1e18);     // full support => +1.0 ray
         assertEq(s1.effectiveVSRay, 1e18);
     }
 
     function test_OutgoingIncomingEdgesContainMetadata() public {
-        uint256 ic = registry.createClaim("Study S showed minimal adverse effects from drug X");
+        uint256 ic = registry.createClaim(
+            "Study S showed minimal adverse effects from drug X"
+        );
         uint256 dc = registry.createClaim("Drug X is safe");
 
         uint256 linkPostId = registry.createLink(ic, dc, false);
@@ -75,7 +92,9 @@ contract ProtocolViewsTest is Test {
         assertEq(inc[0].linkPostId, linkPostId);
         assertEq(inc[0].isChallenge, false);
 
-        (uint256 indep, uint256 dep, bool isChal) = views_.getLinkMeta(linkPostId);
+        (uint256 indep, uint256 dep, bool isChal) =
+            views_.getLinkMeta(linkPostId);
+
         assertEq(indep, ic);
         assertEq(dep, dc);
         assertEq(isChal, false);
@@ -88,7 +107,7 @@ contract ProtocolViewsTest is Test {
         // make IC positive
         stake.stake(ic, 0, 100);
 
-        // link IC -> DC and stake link positively
+        // link IC → DC and stake link positively
         uint256 linkPostId = registry.createLink(ic, dc, false);
         stake.stake(linkPostId, 0, 10);
 
@@ -102,3 +121,4 @@ contract ProtocolViewsTest is Test {
         assertEq(evsViews, evsScore);
     }
 }
+
