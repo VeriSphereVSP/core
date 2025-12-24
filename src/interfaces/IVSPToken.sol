@@ -2,49 +2,21 @@
 pragma solidity ^0.8.20;
 
 /// @title IVSPToken
-/// @notice Minimal interface for the VSP ERC20 used across the protocol.
+/// @notice Minimal interface for VSP-specific mint/burn permissions.
+/// @dev Standard ERC20 methods (name, symbol, decimals, transfer, etc.)
+///      are inherited from OpenZeppelin's ERC20 in VSPToken and are not
+///      repeated here to avoid multiple-inheritance ambiguities.
 interface IVSPToken {
-    // ------------------------------------------------------------------------
-    // ERC-20
-    // ------------------------------------------------------------------------
-
-    function name() external view returns (string memory);
-    function symbol() external view returns (string memory);
-    function decimals() external pure returns (uint8);
-
-    function totalSupply() external view returns (uint256);
-    function balanceOf(address owner) external view returns (uint256);
-
-    function allowance(address owner, address spender)
-        external
-        view
-        returns (uint256);
-
-    function transfer(address to, uint256 amount) external returns (bool);
-
-    function approve(address spender, uint256 amount) external returns (bool);
-
-    function transferFrom(
-        address from,
-        address to,
-        uint256 amount
-    ) external returns (bool);
-
-    // ------------------------------------------------------------------------
-    // VSP-specific mint/burn hooks
-    // ------------------------------------------------------------------------
-
-    /// @notice Mint new VSP to `to`.
-    /// @dev Restricted by Authority (minter role).
+    /// @notice Mint `amount` of VSP to `to`.
+    /// @dev Callable only by an authorized minter in VSPToken.
     function mint(address to, uint256 amount) external;
 
-    /// @notice Burn VSP from the caller's balance.
-    /// @dev Restricted by Authority (burner role).
+    /// @notice Burn `amount` of VSP from the caller.
+    /// @dev Callable only by an authorized burner in VSPToken.
     function burn(uint256 amount) external;
 
-    /// @notice Burn VSP from `from` using allowance.
-    /// @dev Restricted by Authority (burner role) and allowance.
+    /// @notice Burn `amount` of VSP from `from`, using allowance.
+    /// @dev Callable only by an authorized burner in VSPToken.
     function burnFrom(address from, uint256 amount) external;
 }
-
 

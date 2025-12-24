@@ -11,38 +11,50 @@ import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
 
+/// @notice Testnet deployment script (e.g., Avalanche Fuji).
+/// @dev Reads AUTHORITY_OWNER from env so you can use a multisig / hot wallet.
 contract DeployTestnet is Script {
-    string constant VERSION = "v0.4-testnet";
-
     function run() external {
-        require(
-            keccak256(bytes(vm.envString("DEPLOY_VERSION"))) ==
-                keccak256(bytes(VERSION)),
-            "DEPLOY_VERSION mismatch"
-        );
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        address authorityOwner = vm.envAddress("AUTHORITY_OWNER");
 
-        vm.startBroadcast();
+        vm.startBroadcast(deployerPrivateKey);
 
-        Authority authority = new Authority(msg.sender);
-
+        // Authority + token
+        Authority authority = new Authority(authorityOwner);
         VSPToken token = new VSPToken(address(authority));
 
+        // Grant roles to authority owner (multisig or ops wallet).
+        authority.setMinter(authorityOwner, true);
+        authority.setBurner(authorityOwner, true);
+
+        // Core protocol contracts
         PostRegistry registry = new PostRegistry();
-        LinkGraph graph = new LinkGraph();
-        StakeEngine stake = new StakeEngine(token);
-        ScoreEngine score = new ScoreEngine(registry, stake, graph);
-        ProtocolViews views = new ProtocolViews(
+        LinkGraph graph = new LinkGraph(authorityOwner);
+        StakeEngine stake = new StakeEngine(address(token));
+        ScoreEngine score = new ScoreEngine(
+            address(registry),
+            address(graph),
+            address(stake)
+        );
+        ProtocolViews views_ = new ProtocolViews(
             address(registry),
             address(stake),
             address(graph),
             address(score)
         );
 
-        graph.setRegistry(registry);
-        registry.setLinkGraph(graph);
+        // Wire registry <-> graph
+        graph.setRegistry(address(registry));
+        registry.setLinkGraph(address(graph));
 
-        authority.setMinter(address(stake), true);
-        authority.setBurner(address(stake), true);
+        console2.log("Authority:", address(authority));
+        console2.log("VSPToken:", address(token));
+        console2.log("PostRegistry:", address(registry));
+        console2.log("LinkGraph:", address(graph));
+        console2.log("StakeEngine:", address(stake));
+        console2.log("ScoreEngine:", address(score));
+        console2.log("ProtocolViews:", address(views_));
 
         vm.stopBroadcast();
     }

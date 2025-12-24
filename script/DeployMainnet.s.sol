@@ -11,42 +11,50 @@ import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
 
+/// @notice Mainnet deployment script.
+/// @dev Reads GOVERNANCE_MULTISIG from env and sets it as the authority owner.
 contract DeployMainnet is Script {
-    string constant VERSION = "v1.0-mainnet";
-
     function run() external {
-        address GOVERNANCE_MULTISIG = vm.envAddress("GOVERNANCE_MULTISIG");
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        address governanceMultisig = vm.envAddress("GOVERNANCE_MULTISIG");
 
-        require(
-            keccak256(bytes(vm.envString("DEPLOY_VERSION"))) ==
-                keccak256(bytes(VERSION)),
-            "DEPLOY_VERSION mismatch"
-        );
+        vm.startBroadcast(deployerPrivateKey);
 
-        vm.startBroadcast();
-
-        Authority authority = new Authority(msg.sender);
-
+        // Authority is permanently owned by the governance multisig
+        Authority authority = new Authority(governanceMultisig);
         VSPToken token = new VSPToken(address(authority));
 
+        // Grant mint/burn roles to governance multisig
+        authority.setMinter(governanceMultisig, true);
+        authority.setBurner(governanceMultisig, true);
+
+        // Core protocol contracts
         PostRegistry registry = new PostRegistry();
-        LinkGraph graph = new LinkGraph();
-        StakeEngine stake = new StakeEngine(token);
-        ScoreEngine score = new ScoreEngine(registry, stake, graph);
-        ProtocolViews views = new ProtocolViews(
+        LinkGraph graph = new LinkGraph(governanceMultisig);
+        StakeEngine stake = new StakeEngine(address(token));
+        ScoreEngine score = new ScoreEngine(
+            address(registry),
+            address(graph),
+            address(stake)
+        );
+        ProtocolViews views_ = new ProtocolViews(
             address(registry),
             address(stake),
             address(graph),
             address(score)
         );
 
-        graph.setRegistry(registry);
-        registry.setLinkGraph(graph);
+        // Wire registry <-> graph
+        graph.setRegistry(address(registry));
+        registry.setLinkGraph(address(graph));
 
-        authority.setMinter(address(stake), true);
-        authority.setBurner(address(stake), true);
-
-        authority.transferOwnership(GOVERNANCE_MULTISIG);
+        console2.log("Authority:", address(authority));
+        console2.log("VSPToken:", address(token));
+        console2.log("PostRegistry:", address(registry));
+        console2.log("LinkGraph:", address(graph));
+        console2.log("StakeEngine:", address(stake));
+        console2.log("ScoreEngine:", address(score));
+        console2.log("ProtocolViews:", address(views_));
 
         vm.stopBroadcast();
     }

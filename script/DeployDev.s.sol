@@ -11,29 +11,52 @@ import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
 
+/// @notice Local dev deployment script.
+/// @dev Uses the deployer as the initial authority owner / minter / burner.
 contract DeployDev is Script {
     function run() external {
-        vm.startBroadcast();
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
 
-        Authority authority = new Authority(msg.sender);
+        vm.startBroadcast(deployerPrivateKey);
 
+        address deployer = msg.sender;
+
+        // Authority + token
+        Authority authority = new Authority(deployer);
         VSPToken token = new VSPToken(address(authority));
-        authority.setMinter(msg.sender, true);
-        authority.setBurner(msg.sender, true);
 
+        // For local dev: deployer is minter & burner.
+        authority.setMinter(deployer, true);
+        authority.setBurner(deployer, true);
+
+        // Core protocol contracts
         PostRegistry registry = new PostRegistry();
-        LinkGraph graph = new LinkGraph();
-        StakeEngine stake = new StakeEngine(token);
-        ScoreEngine score = new ScoreEngine(registry, stake, graph);
-        ProtocolViews views = new ProtocolViews(
+        LinkGraph graph = new LinkGraph(deployer);
+        StakeEngine stake = new StakeEngine(address(token));
+        ScoreEngine score = new ScoreEngine(
+            address(registry),
+            address(graph),
+            address(stake)
+        );
+        ProtocolViews views_ = new ProtocolViews(
             address(registry),
             address(stake),
             address(graph),
             address(score)
         );
 
-        graph.setRegistry(registry);
-        registry.setLinkGraph(graph);
+        // Wire registry <-> graph
+        graph.setRegistry(address(registry));
+        registry.setLinkGraph(address(graph));
+
+        // Logs for convenience
+        console2.log("Authority:", address(authority));
+        console2.log("VSPToken:", address(token));
+        console2.log("PostRegistry:", address(registry));
+        console2.log("LinkGraph:", address(graph));
+        console2.log("StakeEngine:", address(stake));
+        console2.log("ScoreEngine:", address(score));
+        console2.log("ProtocolViews:", address(views_));
 
         vm.stopBroadcast();
     }

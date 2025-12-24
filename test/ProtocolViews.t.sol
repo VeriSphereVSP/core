@@ -3,40 +3,40 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
 
-import "../src/authority/Authority.sol";
-import "../src/VSPToken.sol";
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
 
-contract ProtocolViewsTest is Test {
-    Authority authority;
-    VSPToken vsp;
+// Reuse MockVSP defined in StakeEngine.t.sol
+import "./StakeEngine.t.sol"; // for MockVSP
 
+contract ProtocolViewsTest is Test {
     PostRegistry registry;
     LinkGraph graph;
+    MockVSP vsp;
     StakeEngine stake;
     ScoreEngine score;
     ProtocolViews views_;
 
     function setUp() public {
-        // --- token + authority (real wiring)
-        authority = new Authority(address(this));
-        vsp = new VSPToken(address(authority));
-
-        authority.setMinter(address(this), true);
-        authority.setBurner(address(this), true);
-
-        // --- core protocol
         registry = new PostRegistry();
-        graph = new LinkGraph();
+
+        // LinkGraph owner can be this test contract
+        graph = new LinkGraph(address(this));
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
 
+        vsp = new MockVSP();
         stake = new StakeEngine(address(vsp));
-        score = new ScoreEngine(address(registry), address(stake), address(graph));
+
+        // ScoreEngine takes addresses: (registry, graph, stake)
+        score = new ScoreEngine(
+            address(registry),
+            address(graph),
+            address(stake)
+        );
 
         views_ = new ProtocolViews(
             address(registry),
@@ -45,7 +45,6 @@ contract ProtocolViewsTest is Test {
             address(score)
         );
 
-        // --- fund test account
         vsp.mint(address(this), 1e30);
         vsp.approve(address(stake), type(uint256).max);
     }
@@ -62,13 +61,12 @@ contract ProtocolViewsTest is Test {
         assertEq(s0.incomingCount, 0);
         assertEq(s0.outgoingCount, 0);
 
-        // stake support on claim → baseVS should move positive
-        stake.stake(a, 0, 100);
-
+        // stake support on claim -> baseVS should move positive
+        stake.stake(a, stake.SIDE_SUPPORT(), 100);
         ProtocolViews.ClaimSummary memory s1 = views_.getClaimSummary(a);
         assertEq(s1.supportStake, 100);
         assertEq(s1.challengeStake, 0);
-        assertEq(s1.baseVSRay, 1e18);     // full support => +1.0 ray
+        assertEq(s1.baseVSRay, 1e18);     // full support => +1.0 in ray
         assertEq(s1.effectiveVSRay, 1e18);
     }
 
@@ -92,9 +90,7 @@ contract ProtocolViewsTest is Test {
         assertEq(inc[0].linkPostId, linkPostId);
         assertEq(inc[0].isChallenge, false);
 
-        (uint256 indep, uint256 dep, bool isChal) =
-            views_.getLinkMeta(linkPostId);
-
+        (uint256 indep, uint256 dep, bool isChal) = views_.getLinkMeta(linkPostId);
         assertEq(indep, ic);
         assertEq(dep, dc);
         assertEq(isChal, false);
@@ -105,11 +101,11 @@ contract ProtocolViewsTest is Test {
         uint256 dc = registry.createClaim("DC");
 
         // make IC positive
-        stake.stake(ic, 0, 100);
+        stake.stake(ic, stake.SIDE_SUPPORT(), 100);
 
-        // link IC → DC and stake link positively
+        // link IC -> DC and stake link positively
         uint256 linkPostId = registry.createLink(ic, dc, false);
-        stake.stake(linkPostId, 0, 10);
+        stake.stake(linkPostId, stake.SIDE_SUPPORT(), 10);
 
         int256 bvsViews = views_.getBaseVSRay(dc);
         int256 evsViews = views_.getEffectiveVSRay(dc);
@@ -121,4 +117,3 @@ contract ProtocolViewsTest is Test {
         assertEq(evsViews, evsScore);
     }
 }
-

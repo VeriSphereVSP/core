@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IVSPToken.sol";
-import "./interfaces/IStakeEngine.sol";
+
 /// @title StakeEngine
 /// @notice Handles staking, queue positions, and epoch-based growth/decay.
 ///         This version settles each epoch symmetrically:
 ///         - Winners: lot.amount increases; VSP is minted to this contract.
 ///         - Losers:  lot.amount decreases (capped at principal); VSP is burned from this contract.
 ///         Gains/losses accrue to the queue to preserve the “queue-shape feedback” mechanic.
-contract StakeEngine is IStakeEngine {
+contract StakeEngine {
     // ------------------------------------------------------------------------
     // Constants & Types
     // ------------------------------------------------------------------------
@@ -39,12 +40,17 @@ contract StakeEngine is IStakeEngine {
     // ------------------------------------------------------------------------
     // Storage
     // ------------------------------------------------------------------------
+
+    /// @notice ERC20 surface (transfer / transferFrom / approve)
+    IERC20 public immutable ERC20_TOKEN;
+
+    /// @notice Protocol surface (mint / burn)
     IVSPToken public immutable VSP_TOKEN;
 
-    // postId => state
+    /// postId => state
     mapping(uint256 => PostState) private posts;
 
-    // Global maximum total stake across all posts (monotonic: never decreases).
+    /// Global maximum total stake across all posts (monotonic: never decreases).
     uint256 public sMax;
 
     // Epoch configuration
@@ -58,7 +64,7 @@ contract StakeEngine is IStakeEngine {
     uint256 public constant P_MAX = 1e18;           // 1.0
     uint256 public constant ALPHA = 1;              // P_raw = xRay^1
 
-    // If T < postingFeeThreshold, treat post as economically neutral.
+    /// If T < postingFeeThreshold, treat post as economically neutral.
     uint256 public postingFeeThreshold;
 
     // ------------------------------------------------------------------------
@@ -83,19 +89,21 @@ contract StakeEngine is IStakeEngine {
     // ------------------------------------------------------------------------
     constructor(address vspToken_) {
         if (vspToken_ == address(0)) revert ZeroAddressToken();
+        ERC20_TOKEN = IERC20(vspToken_);
         VSP_TOKEN = IVSPToken(vspToken_);
     }
 
     // ------------------------------------------------------------------------
     // External API: Stake / Withdraw
     // ------------------------------------------------------------------------
+
     /// @notice Stake VSP on a post, on either support or challenge side.
     function stake(uint256 postId, uint8 side, uint256 amount) external {
         if (amount == 0) revert AmountZero();
         if (side > 1) revert InvalidSide();
 
-        // Pull VSP from user
-        bool ok = VSP_TOKEN.transferFrom(msg.sender, address(this), amount);
+        // Pull VSP from user (ERC20)
+        bool ok = ERC20_TOKEN.transferFrom(msg.sender, address(this), amount);
         require(ok, "VSP transferFrom failed");
 
         PostState storage ps = posts[postId];
@@ -123,23 +131,17 @@ contract StakeEngine is IStakeEngine {
         if (len == 0) revert NotEnoughStake();
 
         if (lifo) {
-            // Latest to earliest
             for (uint256 i = len; i > 0 && remaining > 0; i--) {
                 StakeLot storage lot = q.lots[i - 1];
-                if (lot.staker != msg.sender) continue;
-                if (lot.amount == 0) continue;
-
+                if (lot.staker != msg.sender || lot.amount == 0) continue;
                 uint256 take = lot.amount < remaining ? lot.amount : remaining;
                 lot.amount -= take;
                 remaining -= take;
             }
         } else {
-            // Earliest to latest
             for (uint256 i = 0; i < len && remaining > 0; i++) {
                 StakeLot storage lot = q.lots[i];
-                if (lot.staker != msg.sender) continue;
-                if (lot.amount == 0) continue;
-
+                if (lot.staker != msg.sender || lot.amount == 0) continue;
                 uint256 take = lot.amount < remaining ? lot.amount : remaining;
                 lot.amount -= take;
                 remaining -= take;
@@ -148,11 +150,10 @@ contract StakeEngine is IStakeEngine {
 
         if (remaining > 0) revert NotEnoughStake();
 
-        // Recompute queue positions and totals
         _recomputePostTotals(postId);
 
-        // Return VSP to user
-        bool ok = VSP_TOKEN.transfer(msg.sender, amount);
+        // Return VSP to user (ERC20)
+        bool ok = ERC20_TOKEN.transfer(msg.sender, amount);
         require(ok, "VSP transfer failed");
 
         emit StakeWithdrawn(postId, msg.sender, side, amount, lifo);
@@ -161,6 +162,7 @@ contract StakeEngine is IStakeEngine {
     // ------------------------------------------------------------------------
     // External API: Epoch update
     // ------------------------------------------------------------------------
+
     /// @notice Apply growth/decay for all lots on a post based on the last epochs.
     /// @dev Anyone may call; typically a keeper or backend.
     function updatePost(uint256 postId) external {
@@ -170,31 +172,25 @@ contract StakeEngine is IStakeEngine {
         uint256 last = ps.lastUpdatedEpoch;
 
         if (last == 0) {
-            // No activity yet; initialize clock only.
             ps.lastUpdatedEpoch = epoch;
             return;
         }
-
-        if (epoch <= last) {
-            // Already updated this epoch (or time went backwards).
-            return;
-        }
+        if (epoch <= last) return;
 
         uint256 epochsElapsed = epoch - last;
 
         SideQueue storage qs = ps.sides[SIDE_SUPPORT];
         SideQueue storage qc = ps.sides[SIDE_CHALLENGE];
 
-        uint256 A = qs.total; // support
-        uint256 D = qc.total; // challenge
-        uint256 T = A + D;    // total stake
+        uint256 A = qs.total;
+        uint256 D = qc.total;
+        uint256 T = A + D;
 
         if (T == 0 || sMax == 0 || T < postingFeeThreshold) {
             ps.lastUpdatedEpoch = epoch;
             return;
         }
 
-        // VS numerator: 2A - T (sign determines winner)
         int256 vsNumerator = int256(2 * A) - int256(T);
         if (vsNumerator == 0) {
             ps.lastUpdatedEpoch = epoch;
@@ -204,40 +200,25 @@ contract StakeEngine is IStakeEngine {
         bool supportWins = vsNumerator > 0;
         uint256 absVS = uint256(vsNumerator > 0 ? vsNumerator : -vsNumerator);
 
-        // vRay = absVS / T (0..1 in ray)
         uint256 vRay = (absVS * 1e18) / T;
-
-        // xRay = T / sMax (0..1 in ray)
         uint256 xRay = (T * 1e18) / sMax;
+        uint256 pRay = _clamp(xRay, P_MIN, P_MAX);
 
-        // P_raw = xRay^ALPHA; with ALPHA = 1 => P_raw = xRay
-        uint256 pRaw = xRay;
-        uint256 pRay = _clamp(pRaw, P_MIN, P_MAX);
-
-        // Convert annual rates to per-epoch (scaled by epochsElapsed)
         uint256 rMinEpoch = (R_MIN_ANNUAL * EPOCH_LENGTH * epochsElapsed) / YEAR_IN_SECONDS;
         uint256 rMaxEpoch = (R_MAX_ANNUAL * EPOCH_LENGTH * epochsElapsed) / YEAR_IN_SECONDS;
-
         uint256 rSpan = rMaxEpoch > rMinEpoch ? (rMaxEpoch - rMinEpoch) : 0;
 
-        // rEff = rMinEpoch + rSpan * vRay * pRay / 1e36
         uint256 rEff = rMinEpoch;
         if (rSpan > 0 && vRay > 0 && pRay > 0) {
-            uint256 tmp = (rSpan * vRay) / 1e18;
-            tmp = (tmp * pRay) / 1e18;
-            rEff += tmp;
+            rEff += ((rSpan * vRay) / 1e18 * pRay) / 1e18;
         }
 
-        // Apply to both sides and aggregate mint/burn deltas
         (uint256 mintS, uint256 burnS) = _applyEpochToSide(qs, supportWins, true, rEff);
         (uint256 mintC, uint256 burnC) = _applyEpochToSide(qc, supportWins, false, rEff);
 
         uint256 totalMint = mintS + mintC;
         uint256 totalBurn = burnS + burnC;
 
-        // Keep contract balance aligned with queue totals:
-        // - winners increase lot.amount => mint to this contract
-        // - losers decrease lot.amount => burn from this contract
         if (totalMint > 0) {
             VSP_TOKEN.mint(address(this), totalMint);
             emit EpochMinted(postId, totalMint);
@@ -247,7 +228,6 @@ contract StakeEngine is IStakeEngine {
             emit EpochBurned(postId, totalBurn);
         }
 
-        // Recompute and update totals + sMax
         _recomputePostTotals(postId);
 
         ps.lastUpdatedEpoch = epoch;
@@ -257,20 +237,30 @@ contract StakeEngine is IStakeEngine {
     // ------------------------------------------------------------------------
     // Views
     // ------------------------------------------------------------------------
-    function getPostTotals(uint256 postId) external view returns (uint256 supportTotal, uint256 challengeTotal) {
+
+    function getPostTotals(uint256 postId)
+        external
+        view
+        returns (uint256 supportTotal, uint256 challengeTotal)
+    {
         PostState storage ps = posts[postId];
         supportTotal = ps.sides[SIDE_SUPPORT].total;
         challengeTotal = ps.sides[SIDE_CHALLENGE].total;
     }
 
-    function getLots(uint256 postId, uint8 side) external view returns (StakeLot[] memory) {
+    function getLots(uint256 postId, uint8 side)
+        external
+        view
+        returns (StakeLot[] memory)
+    {
         if (side > 1) revert InvalidSide();
         return posts[postId].sides[side].lots;
     }
 
     // ------------------------------------------------------------------------
-    // Internal helpers
+    // Internal helpers (unchanged logic)
     // ------------------------------------------------------------------------
+
     function _currentEpoch() internal view returns (uint256) {
         return block.timestamp / EPOCH_LENGTH;
     }
@@ -294,20 +284,15 @@ contract StakeEngine is IStakeEngine {
         q.lots.push(lot);
         q.total = newTotal;
 
-        // Update global sMax (monotonic)
-        uint256 A = ps.sides[SIDE_SUPPORT].total;
-        uint256 C = ps.sides[SIDE_CHALLENGE].total;
-        uint256 TT = A + C;
+        uint256 TT = ps.sides[SIDE_SUPPORT].total + ps.sides[SIDE_CHALLENGE].total;
         if (TT > sMax) sMax = TT;
     }
 
     function _recomputePostTotals(uint256 postId) internal {
         PostState storage ps = posts[postId];
-
         uint256 A = _recomputeSide(ps.sides[SIDE_SUPPORT]);
         uint256 C = _recomputeSide(ps.sides[SIDE_CHALLENGE]);
         uint256 TT = A + C;
-
         if (TT > sMax) sMax = TT;
     }
 
@@ -328,17 +313,11 @@ contract StakeEngine is IStakeEngine {
             lot.end = end;
             lot.mid = (begin + end) / 2;
 
-            if (write != i) {
-                q.lots[write] = lot;
-            }
+            if (write != i) q.lots[write] = lot;
             write++;
         }
 
-        // Trim trailing empty slots
-        while (q.lots.length > write) {
-            q.lots.pop();
-        }
-
+        while (q.lots.length > write) q.lots.pop();
         q.total = cursor;
         return cursor;
     }
@@ -358,15 +337,12 @@ contract StakeEngine is IStakeEngine {
             StakeLot storage lot = q.lots[i];
             if (lot.amount == 0) continue;
 
-            // Positional weight: wRay = mid / sMax
             uint256 wRay = (lot.mid * 1e18) / sMax;
             if (wRay == 0) continue;
 
-            // rUserAbs = rEff * wRay / 1e18
             uint256 rUserAbs = (rEff * wRay) / 1e18;
             if (rUserAbs == 0) continue;
 
-            // delta = amount * rUserAbs / 1e18
             uint256 delta = (lot.amount * rUserAbs) / 1e18;
             if (delta == 0) continue;
 
@@ -374,14 +350,11 @@ contract StakeEngine is IStakeEngine {
                 lot.amount += delta;
                 minted += delta;
             } else {
-                // Limited liability: cannot lose more than remaining principal
                 uint256 loss = delta >= lot.amount ? lot.amount : delta;
                 lot.amount -= loss;
                 burned += loss;
             }
         }
-
-        return (minted, burned);
     }
 
     function _clamp(uint256 x, uint256 minVal, uint256 maxVal) internal pure returns (uint256) {
@@ -390,3 +363,4 @@ contract StakeEngine is IStakeEngine {
         return x;
     }
 }
+
