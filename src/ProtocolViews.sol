@@ -2,13 +2,12 @@
 pragma solidity ^0.8.20;
 
 import "./PostRegistry.sol";
-import "./LinkGraph.sol";
 import "./StakeEngine.sol";
+import "./LinkGraph.sol";
 import "./ScoreEngine.sol";
 
 /// @title ProtocolViews
-/// @notice Read-only aggregation over PostRegistry + StakeEngine + LinkGraph + ScoreEngine.
-///         No storage; no mutation; deterministic output.
+/// @notice Read-only aggregation layer for UI/indexers.
 contract ProtocolViews {
     PostRegistry public immutable registry;
     StakeEngine public immutable stake;
@@ -16,9 +15,6 @@ contract ProtocolViews {
     ScoreEngine public immutable score;
 
     struct ClaimSummary {
-        uint256 postId;
-        address creator;
-        uint256 version;
         string text;
         uint256 supportStake;
         uint256 challengeStake;
@@ -40,76 +36,40 @@ contract ProtocolViews {
         score = ScoreEngine(score_);
     }
 
-    // ------------------------------------------------------------------------
-    // Claim summary
-    // ------------------------------------------------------------------------
-
     function getClaimSummary(uint256 claimPostId)
         external
         view
-        returns (ClaimSummary memory summary)
+        returns (ClaimSummary memory s)
     {
         (
-            address creator,
-            uint256 version,
+            ,
+            ,
             PostRegistry.ContentType ct,
             uint256 contentId
         ) = registry.getPost(claimPostId);
 
-        require(ct == PostRegistry.ContentType.Claim, "ProtocolViews: not claim");
+        require(ct == PostRegistry.ContentType.Claim, "not claim");
 
-        string memory text = registry.getClaim(contentId);
+        s.text = registry.getClaim(contentId);
 
-        (uint256 supportStake, uint256 challengeStake) =
+        (s.supportStake, s.challengeStake) =
             stake.getPostTotals(claimPostId);
 
-        int256 baseVS = score.baseVSRay(claimPostId);
-        int256 effectiveVS = score.effectiveVSRay(claimPostId);
+        s.baseVSRay = score.baseVSRay(claimPostId);
+        s.effectiveVSRay = score.effectiveVSRay(claimPostId);
 
-        uint256 incomingCount =
-            graph.getIncoming(claimPostId).length;
-
-        uint256 outgoingCount =
-            graph.getOutgoing(claimPostId).length;
-
-        summary = ClaimSummary({
-            postId: claimPostId,
-            creator: creator,
-            version: version,
-            text: text,
-            supportStake: supportStake,
-            challengeStake: challengeStake,
-            baseVSRay: baseVS,
-            effectiveVSRay: effectiveVS,
-            incomingCount: incomingCount,
-            outgoingCount: outgoingCount
-        });
+        s.incomingCount = graph.getIncoming(claimPostId).length;
+        s.outgoingCount = graph.getOutgoing(claimPostId).length;
     }
 
-    // ------------------------------------------------------------------------
-    // Raw VS passthroughs
-    // ------------------------------------------------------------------------
+    // passthrough helpers
 
-    /// @notice Raw base VS in ray (1e18 = +1.0, -1e18 = -1.0).
     function getBaseVSRay(uint256 claimPostId) external view returns (int256) {
         return score.baseVSRay(claimPostId);
     }
 
-    /// @notice Raw effective VS in ray (multi-hop, symmetrical).
     function getEffectiveVSRay(uint256 claimPostId) external view returns (int256) {
         return score.effectiveVSRay(claimPostId);
-    }
-
-    // ------------------------------------------------------------------------
-    // Graph passthroughs
-    // ------------------------------------------------------------------------
-
-    function getOutgoingEdges(uint256 claimPostId)
-        external
-        view
-        returns (LinkGraph.Edge[] memory)
-    {
-        return graph.getOutgoing(claimPostId);
     }
 
     function getIncomingEdges(uint256 claimPostId)
@@ -120,27 +80,29 @@ contract ProtocolViews {
         return graph.getIncoming(claimPostId);
     }
 
-    /// @notice Resolve link metadata for a link post id.
+    function getOutgoingEdges(uint256 claimPostId)
+        external
+        view
+        returns (LinkGraph.Edge[] memory)
+    {
+        return graph.getOutgoing(claimPostId);
+    }
+
     function getLinkMeta(uint256 linkPostId)
         external
         view
-        returns (
-            uint256 independentClaimPostId,
-            uint256 dependentClaimPostId,
-            bool isChallenge
-        )
+        returns (uint256 from, uint256 to, bool isChallenge)
     {
         (
             ,
             ,
             PostRegistry.ContentType ct,
-            uint256 contentId
+            uint256 linkId
         ) = registry.getPost(linkPostId);
 
-        require(ct == PostRegistry.ContentType.Link, "ProtocolViews: not link");
+        require(ct == PostRegistry.ContentType.Link, "not link");
 
-        (independentClaimPostId, dependentClaimPostId, isChallenge) =
-            registry.getLink(contentId);
+        return registry.getLink(linkId);
     }
 }
 

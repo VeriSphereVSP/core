@@ -12,11 +12,14 @@ contract VSPTokenTest is Test {
     address user2 = address(0xCAFE);
 
     function setUp() public {
-        token = new VSPToken(owner);
+        // Deploy Authority with owner
+        Authority auth = new Authority(owner);
 
-        Authority auth = Authority(address(token.authority()));
+        // Deploy token with authority contract
+        token = new VSPToken(address(auth));
+
+        // Sanity checks
         assertEq(auth.owner(), owner);
-
         assertTrue(auth.isMinter(owner));
         assertTrue(auth.isBurner(owner));
     }

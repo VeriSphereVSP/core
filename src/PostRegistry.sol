@@ -47,16 +47,19 @@ contract PostRegistry {
 
     error NotOwner();
     error LinkGraphAlreadySet();
+    error LinkGraphZeroAddress();
     error LinkGraphNotSet();
 
     constructor() {
         owner = msg.sender;
     }
 
+    /// @notice One-time wiring to the LinkGraph contract.
+    /// @dev IMPORTANT: LinkGraph.registry must be set separately by LinkGraph.owner via LinkGraph.setRegistry(address(this)).
     function setLinkGraph(address linkGraph_) external {
         if (msg.sender != owner) revert NotOwner();
         if (address(linkGraph) != address(0)) revert LinkGraphAlreadySet();
-        if (linkGraph_ == address(0)) revert LinkGraphNotSet();
+        if (linkGraph_ == address(0)) revert LinkGraphZeroAddress();
 
         linkGraph = LinkGraph(linkGraph_);
         emit LinkGraphSet(linkGraph_);
@@ -96,7 +99,13 @@ contract PostRegistry {
         postId = nextPostId++;
 
         uint256 linkId = links.length;
-        links.push(Link({independentPostId: independentPostId, dependentPostId: dependentPostId, isChallenge: isChallenge}));
+        links.push(
+            Link({
+                independentPostId: independentPostId,
+                dependentPostId: dependentPostId,
+                isChallenge: isChallenge
+            })
+        );
 
         posts[postId] = Post({
             creator: msg.sender,
@@ -105,7 +114,8 @@ contract PostRegistry {
             contentId: linkId
         });
 
-        // 🔐 DAG enforcement + metadata storage
+        // DAG enforcement + metadata storage
+        // NOTE: This will revert NotRegistry() unless LinkGraph.setRegistry(address(this)) has already been called.
         linkGraph.addEdge(independentPostId, dependentPostId, postId, isChallenge);
 
         emit PostCreated(postId, msg.sender, ContentType.Link);
@@ -129,3 +139,4 @@ contract PostRegistry {
         return postId < nextPostId;
     }
 }
+

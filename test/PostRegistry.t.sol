@@ -10,13 +10,16 @@ contract PostRegistryTest is Test {
     LinkGraph graph;
 
     function setUp() public {
-        // Deploy registry
+        // Deploy registry (owner = this test contract)
         registry = new PostRegistry();
 
-        // Deploy graph with registry as the authorized caller
-        graph = new LinkGraph(address(registry));
+        // Deploy graph with THIS contract as owner
+        graph = new LinkGraph(address(this));
 
-        // Bind registry -> graph
+        // Wire graph → registry (must be done by graph.owner)
+        graph.setRegistry(address(registry));
+
+        // Wire registry → graph (must be done by registry.owner)
         registry.setLinkGraph(address(graph));
     }
 
@@ -90,3 +93,4 @@ contract PostRegistryTest is Test {
         registry.createClaim("");
     }
 }
+
