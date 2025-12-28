@@ -84,7 +84,6 @@ contract ScoreEngineTest is Test {
     function setUp() public {
         registry = new PostRegistry();
 
-        // LinkGraph owner is this test contract
         graph = new LinkGraph(address(this));
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
@@ -97,181 +96,162 @@ contract ScoreEngineTest is Test {
         vsp.approve(address(stake), type(uint256).max);
     }
 
-    // ---------------------------------------------------------------------
-    // A -> B -> C : propagation should be positive and attenuate with hops.
-    // Under gating rules, B and C must have nonzero stake or effectiveVS=0.
-    // ---------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------
+
+    // Activate a post without saturating VS to ±1
+    function _activateNeutral(uint256 postId) internal {
+        stake.stake(postId, stake.SIDE_SUPPORT(), 1);
+        stake.stake(postId, stake.SIDE_CHALLENGE(), 1);
+    }
+
+    // Stake a link with mass but non-saturated VS (~ +0.5)
+    function _stakeLinkBiased(uint256 linkPostId, uint256 total) internal {
+        // 3/4 support, 1/4 challenge
+        uint256 s = (total * 3) / 4;
+        uint256 d = total - s;
+        stake.stake(linkPostId, stake.SIDE_SUPPORT(), s);
+        stake.stake(linkPostId, stake.SIDE_CHALLENGE(), d);
+    }
+
+    // ------------------------------------------------------------
+    // A -> B -> C linear propagation
+    // ------------------------------------------------------------
     function test_MultiHopEffectiveVS_LinearChain() public {
         uint256 A = registry.createClaim("A");
         uint256 B = registry.createClaim("B");
         uint256 C = registry.createClaim("C");
 
-        // Activate B & C so effectiveVS is computed
-        stake.stake(B, stake.SIDE_SUPPORT(), 1);
-        stake.stake(C, stake.SIDE_SUPPORT(), 1);
+        _activateNeutral(B);
+        _activateNeutral(C);
 
-        // Strong A support
-        stake.stake(A, stake.SIDE_SUPPORT(), 200);
+        stake.stake(A, stake.SIDE_SUPPORT(), 300);
 
-        // Links A->B, B->C
         uint256 AB = registry.createLink(A, B, false);
         uint256 BC = registry.createLink(B, C, false);
 
-        // Give links meaningful mass so routed influence exists
-        stake.stake(AB, stake.SIDE_SUPPORT(), 200);
-        stake.stake(BC, stake.SIDE_SUPPORT(), 200);
+        _stakeLinkBiased(AB, 400);
+        _stakeLinkBiased(BC, 400);
 
         int256 evsA = score.effectiveVSRay(A);
         int256 evsB = score.effectiveVSRay(B);
         int256 evsC = score.effectiveVSRay(C);
 
-        assertGt(evsA, 0, "A should be positive");
-        assertGt(evsB, 0, "B should receive routed influence");
-        assertGt(evsC, 0, "C should receive routed influence");
+        assertGt(evsA, 0);
+        assertGt(evsB, 0);
+        assertGt(evsC, 0);
 
-        // Multi-hop should not amplify: downstream should not exceed upstream in a simple chain
-        assertGe(evsA, evsB, "A should be >= B in simple chain");
-        assertGe(evsB, evsC, "B should be >= C in simple chain");
+        assertGe(evsA, evsB);
+        assertGe(evsB, evsC);
 
-        // Still bounded
-        assertTrue(evsC >= -RAY && evsC <= RAY, "bounded");
+        assertTrue(evsC >= -RAY && evsC <= RAY);
     }
 
-    // ---------------------------------------------------------------------
-    // Challenge link should invert contribution polarity.
-    // Here: A -> B support, B -> C challenge.
-    // Expect: C pulled away from B, potentially negative depending on weights.
-    // ---------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // Challenge propagation
+    // ------------------------------------------------------------
     function test_MultiHopWithChallengePropagation() public {
         uint256 A = registry.createClaim("A");
         uint256 B = registry.createClaim("B");
         uint256 C = registry.createClaim("C");
 
-        // Activate B & C
-        stake.stake(B, stake.SIDE_SUPPORT(), 1);
-        stake.stake(C, stake.SIDE_SUPPORT(), 1);
+        _activateNeutral(B);
+        _activateNeutral(C);
 
-        // Strong A support
-        stake.stake(A, stake.SIDE_SUPPORT(), 200);
+        stake.stake(A, stake.SIDE_SUPPORT(), 300);
 
-        // A -> B support, B -> C challenge
         uint256 AB = registry.createLink(A, B, false);
         uint256 BC = registry.createLink(B, C, true);
 
-        // Make both links strong enough to matter
-        stake.stake(AB, stake.SIDE_SUPPORT(), 200);
-        stake.stake(BC, stake.SIDE_SUPPORT(), 200);
+        _stakeLinkBiased(AB, 400);
+        _stakeLinkBiased(BC, 400);
 
         int256 evsB = score.effectiveVSRay(B);
         int256 evsC = score.effectiveVSRay(C);
 
-        assertGt(evsB, 0, "B should be positive");
-        assertTrue(evsC < evsB, "challenge should pull C below B");
-
-        // Depending on your exact math, evsC may or may not go negative.
-        // But it MUST remain bounded.
-        assertTrue(evsC >= -RAY && evsC <= RAY, "bounded");
+        assertGt(evsB, 0);
+        assertLt(evsC, evsB);
     }
 
-    // ---------------------------------------------------------------------
-    // Mixed influence: flipping upstream should MOVE downstream if routing is strong enough.
-    // Do NOT require a full sign flip; require a meaningful delta and direction.
-    // ---------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // Upstream flip must move downstream
+    // ------------------------------------------------------------
     function test_MultiHopMixedInfluence() public {
         uint256 A = registry.createClaim("A");
         uint256 B = registry.createClaim("B");
         uint256 C = registry.createClaim("C");
 
-        // Activate B & C (otherwise effectiveVS=0)
-        stake.stake(B, stake.SIDE_SUPPORT(), 1);
-        stake.stake(C, stake.SIDE_SUPPORT(), 1);
+        _activateNeutral(B);
+        _activateNeutral(C);
 
-        // Links A->B, B->C (support)
         uint256 AB = registry.createLink(A, B, false);
         uint256 BC = registry.createLink(B, C, false);
 
-        // Make routing strong
-        stake.stake(AB, stake.SIDE_SUPPORT(), 400);
-        stake.stake(BC, stake.SIDE_SUPPORT(), 400);
+        _stakeLinkBiased(AB, 800);
+        _stakeLinkBiased(BC, 800);
 
-        // Case 1: A positive
         stake.stake(A, stake.SIDE_SUPPORT(), 300);
         int256 eC1 = score.effectiveVSRay(C);
 
-        // Case 2: overwhelm A with challenge to flip A negative hard
         stake.stake(A, stake.SIDE_CHALLENGE(), 1200);
         int256 eC2 = score.effectiveVSRay(C);
 
-        assertTrue(eC1 >= -RAY && eC1 <= RAY, "eC1 bounded");
-        assertTrue(eC2 >= -RAY && eC2 <= RAY, "eC2 bounded");
-
-        // Must respond
-        assertTrue(eC1 != eC2, "C should change when upstream flips (with strong routing)");
-
-        // Directional expectation: after flipping A negative, C should move downward
-        assertTrue(eC2 < eC1, "C should move down when A flips negative");
+        assertTrue(eC1 != eC2);
+        assertTrue(eC2 < eC1);
     }
 
-    // ---------------------------------------------------------------------
-    // NEW: IC mass distribution across multiple outgoing links.
-    // Equal link mass => equal downstream influence.
-    // ---------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // IC mass evenly distributed
+    // ------------------------------------------------------------
     function test_ICMass_DistributesEvenlyAcrossEqualLinks() public {
         uint256 IC = registry.createClaim("IC");
         uint256 D1 = registry.createClaim("D1");
         uint256 D2 = registry.createClaim("D2");
 
-        // Activate DCs
-        stake.stake(D1, stake.SIDE_SUPPORT(), 1);
-        stake.stake(D2, stake.SIDE_SUPPORT(), 1);
+        _activateNeutral(D1);
+        _activateNeutral(D2);
 
-        // Strong IC
         stake.stake(IC, stake.SIDE_SUPPORT(), 500);
 
         uint256 L1 = registry.createLink(IC, D1, false);
         uint256 L2 = registry.createLink(IC, D2, false);
 
-        // Equal link stake/mass
-        stake.stake(L1, stake.SIDE_SUPPORT(), 200);
-        stake.stake(L2, stake.SIDE_SUPPORT(), 200);
+        _stakeLinkBiased(L1, 400);
+        _stakeLinkBiased(L2, 400);
 
         int256 v1 = score.effectiveVSRay(D1);
         int256 v2 = score.effectiveVSRay(D2);
 
-        // They should be very close. Exact equality may not hold due to integer division,
-        // but should be within a tiny tolerance.
         int256 diff = v1 - v2;
         if (diff < 0) diff = -diff;
 
-        assertLe(uint256(int256(diff)), 1e12, "equal links should yield ~equal influence");
+        assertLe(uint256(diff), 1e12);
     }
 
-    // ---------------------------------------------------------------------
-    // NEW: Larger link mass should receive more IC mass.
-    // ---------------------------------------------------------------------
+    // ------------------------------------------------------------
+    // Larger link mass dominates
+    // ------------------------------------------------------------
     function test_ICMass_StrongerLinkGetsMoreInfluence() public {
         uint256 IC = registry.createClaim("IC");
         uint256 D1 = registry.createClaim("D1");
         uint256 D2 = registry.createClaim("D2");
 
-        // Activate DCs
-        stake.stake(D1, stake.SIDE_SUPPORT(), 1);
-        stake.stake(D2, stake.SIDE_SUPPORT(), 1);
+        _activateNeutral(D1);
+        _activateNeutral(D2);
 
-        // Strong IC
         stake.stake(IC, stake.SIDE_SUPPORT(), 500);
 
         uint256 L1 = registry.createLink(IC, D1, false);
         uint256 L2 = registry.createLink(IC, D2, false);
 
-        // Unequal link mass
-        stake.stake(L1, stake.SIDE_SUPPORT(), 400);
-        stake.stake(L2, stake.SIDE_SUPPORT(), 100);
+        _stakeLinkBiased(L1, 400);
+        _stakeLinkBiased(L2, 100);
 
         int256 v1 = score.effectiveVSRay(D1);
         int256 v2 = score.effectiveVSRay(D2);
 
-        assertGt(v1, v2, "heavier link should route more IC mass");
+        assertGt(v1, v2);
     }
 }
 
