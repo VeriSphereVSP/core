@@ -152,33 +152,42 @@ contract EconomicInvariantsTest is Test {
         assertTrue(e >= -1e18 && e <= 1e18, "effectiveVS out of bounds");
     }
 
-    function test_MultiHop_Propagation_Chain3() public {
-        // A -> B -> C
-        uint256 A = registry.createClaim("A");
-        uint256 B = registry.createClaim("B");
-        uint256 C = registry.createClaim("C");
+	function test_MultiHop_Propagation_Chain3() public {
+		// A -> B -> C
+		uint256 A = registry.createClaim("A");
+		uint256 B = registry.createClaim("B");
+		uint256 C = registry.createClaim("C");
 
-        // Activate B and C (otherwise effectiveVS gated to 0)
-        stake.stake(B, 0, 1);
-        stake.stake(C, 0, 1);
+		// Activate B and C (otherwise effectiveVSRay returns 0 for gated posts)
+		stake.stake(B, 0, 1);
+		stake.stake(C, 0, 1);
 
-        uint256 AB = registry.createLink(A, B, false);
-        uint256 BC = registry.createLink(B, C, false);
+		uint256 AB = registry.createLink(A, B, false);
+		uint256 BC = registry.createLink(B, C, false);
 
-        stake.stake(AB, 0, 50);
-        stake.stake(BC, 0, 50);
+		// Make links heavy so routing is meaningful
+		stake.stake(AB, 0, 500);
+		stake.stake(BC, 0, 500);
 
-        stake.stake(A, 0, 100);
-        int256 eC1 = score.effectiveVSRay(C);
+		// Case 1: A strongly positive
+		stake.stake(A, 0, 300);
+		int256 eC1 = score.effectiveVSRay(C);
 
-        stake.stake(A, 1, 300);
-        int256 eC2 = score.effectiveVSRay(C);
+		// Case 2: flip A strongly negative
+		stake.stake(A, 1, 1200);
+		int256 eC2 = score.effectiveVSRay(C);
 
-	assertTrue(eC1 >= -1e18 && eC1 <= 1e18);
-	assertTrue(eC2 >= -1e18 && eC2 <= 1e18);
-        assertTrue(eC1 >= -1e18 && eC1 <= 1e18, "eC1 out of bounds");
-        assertTrue(eC2 >= -1e18 && eC2 <= 1e18, "eC2 out of bounds");
-    }
+		// Expect downstream changes
+		assertTrue(eC1 != eC2, "downstream did not change");
+
+		// Directional expectation
+		assertTrue(eC2 < eC1, "downstream did not move downward");
+
+		// Still bounded
+		assertTrue(eC1 >= -1e18 && eC1 <= 1e18, "eC1 out of bounds");
+		assertTrue(eC2 >= -1e18 && eC2 <= 1e18, "eC2 out of bounds");
+	}
+
 
     function test_Cycle_Reverts_IfEnforced() public {
         uint256 A = registry.createClaim("A");
@@ -270,4 +279,5 @@ contract TestVSP is IVSPToken {
         _totalSupply -= amount;
     }
 }
+
 
