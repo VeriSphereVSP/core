@@ -2,15 +2,15 @@
 pragma solidity ^0.8.20;
 
 import "./PostRegistry.sol";
-import "./StakeEngine.sol";
 import "./LinkGraph.sol";
 import "./ScoreEngine.sol";
+import "./interfaces/IStakeEngine.sol";
 
 /// @title ProtocolViews
 /// @notice Read-only aggregation layer for UI/indexers.
 contract ProtocolViews {
     PostRegistry public immutable registry;
-    StakeEngine public immutable stake;
+    IStakeEngine public immutable stake;
     LinkGraph public immutable graph;
     ScoreEngine public immutable score;
 
@@ -31,7 +31,7 @@ contract ProtocolViews {
         address score_
     ) {
         registry = PostRegistry(registry_);
-        stake = StakeEngine(stake_);
+        stake = IStakeEngine(stake_);
         graph = LinkGraph(graph_);
         score = ScoreEngine(score_);
     }

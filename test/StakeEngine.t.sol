@@ -2,7 +2,9 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
+
 import "../src/StakeEngine.sol";
+import "../src/interfaces/IStakeEngine.sol";
 import "../src/interfaces/IVSPToken.sol";
 
 /// -------------------------------------------------------------------------
@@ -75,13 +77,15 @@ contract MockVSP is IVSPToken {
 /// -------------------------------------------------------------------------
 contract StakeEngineTest is Test {
     MockVSP token;
-    StakeEngine engine;
+    IStakeEngine engine;
 
     uint256 postId = 1;
 
     function setUp() public {
         token = new MockVSP();
-        engine = new StakeEngine(address(token));
+
+        // Deploy concrete StakeEngine, bind via interface
+        engine = IStakeEngine(address(new StakeEngine(address(token))));
 
         token.mint(address(this), 1e36);
         token.approve(address(engine), type(uint256).max);
