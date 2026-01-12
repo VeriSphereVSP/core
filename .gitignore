@@ -8,6 +8,10 @@ foundry.lock
 # Environment variables
 .env
 *.env
+*.venv/
+
+# Hardhat
+artifacts/
 
 # Logs
 *.log
@@ -27,6 +31,8 @@ lib/*
 
 # OS
 .DS_Store
+.idea/
+.vscode/
 Thumbs.db
 
 # misc

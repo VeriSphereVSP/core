@@ -36,12 +36,18 @@ contract ScoreEngine {
         uint256 postingFee = stake.postingFeeThreshold();
 
         uint256 T = A + D;
+
+        // Always safe on empty.
+        if (T == 0) return 0;
+
+        // Economic gating.
         if (T < postingFee) return 0;
 
-        // Inject posting fee as virtual support
+        // Inject posting fee as virtual support (only once active)
         uint256 Aeff = A + postingFee;
         uint256 Teff = Aeff + D;
 
+        // Teff can't be 0 here because T>=postingFee and T>0, and Aeff>=A>=0.
         int256 num = int256(2 * Aeff) * RAY;
         int256 vs = (num / int256(Teff)) - RAY;
 
@@ -91,6 +97,7 @@ contract ScoreEngine {
             int256 linkVS = baseVSRay(linkPostId);
             if (e.isChallenge) linkVS = -linkVS;
 
+            // contrib = (linkVS * icVS) * (linkStake / sumOutgoing)
             int256 contrib = (linkVS * icVS) / RAY;
             contrib = (contrib * int256(linkStake)) / int256(sumOutgoing);
 
@@ -114,7 +121,10 @@ contract ScoreEngine {
         view
         returns (bool)
     {
-        return _totalStake(postId) >= threshold;
+        // If threshold is accidentally set to 0, still treat empty as inactive.
+        uint256 t = _totalStake(postId);
+        if (t == 0) return false;
+        return t >= threshold;
     }
 
     function _sumOutgoingLinkStake(uint256 ic, uint256 threshold)

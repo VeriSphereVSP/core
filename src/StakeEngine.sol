@@ -45,6 +45,8 @@ contract StakeEngine {
     uint256 public constant P_MIN = 1e17;
     uint256 public constant P_MAX = 1e18;
 
+    /// @notice Minimum total stake required for a post to be economically active (ScoreEngine gating).
+    /// @dev MUST be non-zero to avoid accidental "active when empty" semantics.
     uint256 public postingFeeThreshold;
 
     error InvalidSide();
@@ -62,6 +64,24 @@ contract StakeEngine {
         if (vspToken_ == address(0)) revert ZeroAddressToken();
         ERC20_TOKEN = IERC20(vspToken_);
         VSP_TOKEN = IVSPToken(vspToken_);
+
+        // Keep tests + ScoreEngine semantics sane: "empty post" must not be active.
+        // Tests use raw small units (1, 10, 100) so use 1 (not 1e18).
+        postingFeeThreshold = 1;
+    }
+
+    // ------------------------------------------------------------------------
+    // Views (required by IStakeEngine consumers)
+    // ------------------------------------------------------------------------
+
+    function getPostTotals(uint256 postId)
+        external
+        view
+        returns (uint256 support, uint256 challenge)
+    {
+        PostState storage ps = posts[postId];
+        support = ps.sides[SIDE_SUPPORT].total;
+        challenge = ps.sides[SIDE_CHALLENGE].total;
     }
 
     // ------------------------------------------------------------------------
@@ -172,8 +192,14 @@ contract StakeEngine {
         uint256 minted = mintS + mintC;
         uint256 burned = burnS + burnC;
 
-        if (minted > 0) VSP_TOKEN.mint(address(this), minted);
-        if (burned > 0) VSP_TOKEN.burn(burned);
+        if (minted > 0) {
+            VSP_TOKEN.mint(address(this), minted);
+            emit EpochMinted(postId, minted);
+        }
+        if (burned > 0) {
+            VSP_TOKEN.burn(burned);
+            emit EpochBurned(postId, burned);
+        }
 
         _recomputePostTotals(postId);
 

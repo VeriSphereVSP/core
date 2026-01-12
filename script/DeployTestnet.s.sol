@@ -34,8 +34,8 @@ contract DeployTestnet is Script {
         StakeEngine stake = new StakeEngine(address(token));
         ScoreEngine score = new ScoreEngine(
             address(registry),
-            address(graph),
-            address(stake)
+            address(stake),
+            address(graph)
         );
         ProtocolViews views_ = new ProtocolViews(
             address(registry),
@@ -43,6 +43,10 @@ contract DeployTestnet is Script {
             address(graph),
             address(score)
         );
+
+        // CRITICAL: StakeEngine must be allowed to mint/burn for epoch settlement
+        authority.setMinter(address(stake), true);
+        authority.setBurner(address(stake), true);
 
         // Wire registry <-> graph
         graph.setRegistry(address(registry));
