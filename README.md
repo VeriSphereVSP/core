@@ -32,25 +32,30 @@ There are no moderators, votes, or reputation scores in the core protocol. Outco
 
 ```
 core/
+├── script/
+│   └── Deploy.s.sol
 ├── src/
+│   ├── LinkGraph.sol
+│   ├── PostRegistry.sol
+│   ├── PostingFeePolicy.sol
+│   ├── ProtocolViews.sol
+│   ├── ScoreEngine.sol
+│   ├── StakeEngine.sol
 │   ├── VSPToken.sol
 │   ├── authority/
 │   │   └── Authority.sol
-│   ├── PostRegistry.sol
-│   ├── LinkGraph.sol
-│   ├── StakeEngine.sol
-│   ├── ScoreEngine.sol
-│   ├── ProtocolViews.sol
-│   └── interfaces/
-│       └── IVSPToken.sol
-│
-├── script/
-│   └── Deploy*.s.sol
-│
-├── test/
-│   ├── *.t.sol
-│   └── ...
-│
+│   ├── governance/
+│   │   └── PostingFeePolicy.sol
+│   ├── interfaces/
+│   │   ├── IPostingFeePolicy.sol
+│   │   ├── IStakeEngine.sol
+│   │   └── IVSPToken.sol
+│   └── staking/
+│       └── IdleDecay.sol
+└── test/
+    ├── *.t.sol
+    └── mocks/
+        ├── MockPostingFe
 ├── foundry.toml
 └── README.md
 ```
