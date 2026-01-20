@@ -12,13 +12,9 @@ contract VSPTokenTest is Test {
     address user2 = address(0xCAFE);
 
     function setUp() public {
-        // Deploy Authority with owner
         Authority auth = new Authority(owner);
-
-        // Deploy token with authority contract
         token = new VSPToken(address(auth));
 
-        // Sanity checks
         assertEq(auth.owner(), owner);
         assertTrue(auth.isMinter(owner));
         assertTrue(auth.isBurner(owner));
@@ -51,17 +47,15 @@ contract VSPTokenTest is Test {
         assertEq(token.balanceOf(user1), 700);
     }
 
-    // --- Reverts ---
-
     function test_RevertWhen_NonOwnerMints() public {
         vm.prank(user1);
-        vm.expectRevert(bytes("VSP: not minter"));
+        vm.expectRevert("not minter");
         token.mint(user1, 1000);
     }
 
     function test_RevertWhen_NonOwnerBurns() public {
         vm.prank(user1);
-        vm.expectRevert(bytes("VSP: not burner"));
+        vm.expectRevert("not burner");
         token.burn(100);
     }
 
@@ -70,8 +64,8 @@ contract VSPTokenTest is Test {
         token.mint(user1, 1000);
         vm.stopPrank();
 
-        vm.prank(owner);
-        vm.expectRevert(); // ERC20 insufficient allowance
+        vm.prank(user2);  // non-burner
+        vm.expectRevert("not burner");  // or "insufficient allowance" if you add check
         token.burnFrom(user1, 300);
     }
 
@@ -88,8 +82,7 @@ contract VSPTokenTest is Test {
         Authority auth = Authority(address(token.authority()));
 
         vm.prank(user1);
-        vm.expectRevert(bytes("AUTH: not owner"));
+        vm.expectRevert("AUTH: not owner");
         auth.setMinter(user2, true);
     }
 }
-

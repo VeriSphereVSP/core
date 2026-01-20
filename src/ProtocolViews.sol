@@ -5,6 +5,7 @@ import "./PostRegistry.sol";
 import "./LinkGraph.sol";
 import "./ScoreEngine.sol";
 import "./interfaces/IStakeEngine.sol";
+import "./interfaces/IPostingFeePolicy.sol";
 
 /// @title ProtocolViews
 /// @notice Read-only aggregation layer for UI/indexers.
@@ -13,11 +14,15 @@ contract ProtocolViews {
     IStakeEngine public immutable stake;
     LinkGraph public immutable graph;
     ScoreEngine public immutable score;
+    IPostingFeePolicy public immutable feePolicy;
 
     struct ClaimSummary {
         string text;
         uint256 supportStake;
         uint256 challengeStake;
+        uint256 totalStake;
+        uint256 postingFee;
+        bool isActive;
         int256 baseVSRay;
         int256 effectiveVSRay;
         uint256 incomingCount;
@@ -28,12 +33,14 @@ contract ProtocolViews {
         address registry_,
         address stake_,
         address graph_,
-        address score_
+        address score_,
+        address feePolicy_
     ) {
         registry = PostRegistry(registry_);
         stake = IStakeEngine(stake_);
         graph = LinkGraph(graph_);
         score = ScoreEngine(score_);
+        feePolicy = IPostingFeePolicy(feePolicy_);
     }
 
     function getClaimSummary(uint256 claimPostId)
@@ -41,20 +48,19 @@ contract ProtocolViews {
         view
         returns (ClaimSummary memory s)
     {
-        (
-            ,
-            ,
-            PostRegistry.ContentType ct,
-            uint256 contentId
-        ) = registry.getPost(claimPostId);
+        PostRegistry.Post memory p = registry.getPost(claimPostId);
+        require(p.contentType == PostRegistry.ContentType.Claim, "not claim");
 
-        require(ct == PostRegistry.ContentType.Claim, "not claim");
-
-        s.text = registry.getClaim(contentId);
+        s.text = registry.getClaim(p.contentId);
 
         (s.supportStake, s.challengeStake) =
             stake.getPostTotals(claimPostId);
 
+        s.totalStake = s.supportStake + s.challengeStake;
+        s.postingFee = feePolicy.postingFeeVSP();
+        s.isActive = s.totalStake >= s.postingFee;
+
+        // ScoreEngine already enforces Model B gating
         s.baseVSRay = score.baseVSRay(claimPostId);
         s.effectiveVSRay = score.effectiveVSRay(claimPostId);
 
@@ -62,14 +68,25 @@ contract ProtocolViews {
         s.outgoingCount = graph.getOutgoing(claimPostId).length;
     }
 
-    // passthrough helpers
+    // ---------------------------------------------------------------------
+    // Passthrough helpers
+    // ---------------------------------------------------------------------
 
-    function getBaseVSRay(uint256 claimPostId) external view returns (int256) {
-        return score.baseVSRay(claimPostId);
+    function postingFeeVSP() external view returns (uint256) {
+        return feePolicy.postingFeeVSP();
     }
 
-    function getEffectiveVSRay(uint256 claimPostId) external view returns (int256) {
-        return score.effectiveVSRay(claimPostId);
+    function isActive(uint256 postId) external view returns (bool) {
+        (uint256 s, uint256 c) = stake.getPostTotals(postId);
+        return (s + c) >= feePolicy.postingFeeVSP();
+    }
+
+    function getBaseVSRay(uint256 postId) external view returns (int256) {
+        return score.baseVSRay(postId);
+    }
+
+    function getEffectiveVSRay(uint256 postId) external view returns (int256) {
+        return score.effectiveVSRay(postId);
     }
 
     function getIncomingEdges(uint256 claimPostId)
@@ -93,16 +110,11 @@ contract ProtocolViews {
         view
         returns (uint256 from, uint256 to, bool isChallenge)
     {
-        (
-            ,
-            ,
-            PostRegistry.ContentType ct,
-            uint256 linkId
-        ) = registry.getPost(linkPostId);
+        PostRegistry.Post memory p = registry.getPost(linkPostId);
+        require(p.contentType == PostRegistry.ContentType.Link, "not link");
 
-        require(ct == PostRegistry.ContentType.Link, "not link");
-
-        return registry.getLink(linkId);
+        PostRegistry.Link memory l = registry.getLink(p.contentId);
+        return (l.independentPostId, l.dependentPostId, l.isChallenge);
     }
 }
 

@@ -1,40 +1,145 @@
 # VeriSphere Core Deployment Guide
 
-## Overview
-This document describes how to build, test, and deploy the VeriSphere core protocol
-across development, testnet, and mainnet environments.
+This document describes how to build, test, and deploy the VeriSphere core smart contracts using Foundry.
 
-## Environments
-- Dev: local Anvil
-- Testnet: Avalanche Fuji
-- Mainnet: Avalanche C-Chain
+---
 
-## Build & Test
+## Repository Structure
+
+Key directories:
+
+- `src` — Core protocol contracts
+- `script` — Deployment scripts
+- `test` — Foundry tests
+- `deployments` — JSON deployment artifacts
+
+The repository uses a single deployment script:
+
+- `script/Deploy.s.sol`
+
+---
+
+## Prerequisites
+
+You must have:
+
+- Foundry installed (__INLINE_CODE__forge__, __INLINE_CODE__cast__)
+- A funded EOA for deployment
+- RPC access to Avalanche Fuji (testnet) or Mainnet
+
+---
+
+## Environment Variables
+
+Create a file named `.env` in the repository root:
+
+```bash
+PRIVATE_KEY=0xYOUR_PRIVATE_KEY
+DEPLOY_ENV=testnet
+GOVERNANCE_MULTISIG=0xYOUR_GOV_ADDRESS
+AVALANCHE_FUJI_RPC=https://api.avax-test.network/ext/bc/C/rpc
 ```
+
+Notes:
+
+- `PRIVATE_KEY` must control a funded EOA
+- For `DEPLOY_ENV=dev`, governance == deployer
+- For `DEPLOY_ENV=testnet__/INLINE_CODE__ or __INLINE_CODE__mainnet`, governance is external
+
+---
+
+## Build
+
+Run:
+
+```bash
 forge clean
 forge build
+```
+
+---
+
+## Test
+
+Run all tests:
+
+```bash
 forge test -vv
 ```
 
-## Deployment Scripts
-- DeployDev.s.sol — local testing
-- DeployTestnet.s.sol — Fuji testnet
-- DeployMainnet.s.sol — mainnet
+All tests must pass before deployment.
 
-## Environment Variables
-- PRIVATE_KEY
-- AUTHORITY_OWNER (testnet)
-- GOVERNANCE_MULTISIG (mainnet)
+---
 
-## Deployment Commands
+## Deployment (Testnet)
+
+Deploy to Avalanche Fuji:
+
+```bash
+source .env
+forge script script/Deploy.s.sol:Deploy \
+  --rpc-url $AVALANCHE_FUJI_RPC \
+  --broadcast \
+  --verify
 ```
-forge script script/DeployDev.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
-forge script script/DeployTestnet.s.sol --rpc-url $FUJI_RPC --broadcast
-forge script script/DeployMainnet.s.sol --rpc-url $AVAX_RPC --broadcast
-```
+
+This deploys:
+
+- Authority
+- TimelockController
+- PostingFeePolicy (timelock-governed)
+- VSPToken
+- PostRegistry
+- LinkGraph
+- StakeEngine
+- ScoreEngine
+- ProtocolViews
+
+Deployment addresses are written to:
+
+`deployments/testnet.json`
+
+---
+
+## Posting Fee Governance
+
+The posting fee:
+
+- Is denominated in VSP
+- Is burned on post creation
+- Gates economic activation
+- Is read dynamically by ScoreEngine and ProtocolViews
+
+The fee value is stored in:
+
+`PostingFeePolicy`
+
+Changes must be executed through the TimelockController.
+
+---
+
+## Timelock Usage (Overview)
+
+To change the posting fee in production:
+
+1. Encode a call to `PostingFeePolicy.setPostingFeeVSP`
+2. Queue it via the TimelockController
+3. Wait for the delay
+4. Execute the transaction
+
+This ensures transparent, delayed governance changes.
+
+---
 
 ## Notes
-- Every deployment produces new contract addresses
-- Authority owner controls mint/burn permissions
-- Epoch updates are permissionless and gas-paid by caller
+
+- There are no legacy DeployDev / DeployTestnet scripts
+- All deployments are parameterized by `DEPLOY_ENV`
+- The frontend and app consume protocol state via ProtocolViews
+
+---
+
+## License
+
+MIT
 

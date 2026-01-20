@@ -2,18 +2,19 @@
 pragma solidity ^0.8.20;
 
 import "./LinkGraph.sol";
+import "./interfaces/IVSPToken.sol";
+import "./interfaces/IPostingFeePolicy.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract PostRegistry {
-    enum ContentType {
-        Claim,
-        Link
-    }
+    enum ContentType { Claim, Link }
 
     struct Post {
         address creator;
         uint256 timestamp;
         ContentType contentType;
         uint256 contentId;
+        uint256 creationFee;  // Burned VSP amount (counts as virtual support if T >= fee)
     }
 
     struct Claim {
@@ -27,7 +28,6 @@ contract PostRegistry {
     }
 
     mapping(uint256 => Post) private posts;
-
     Claim[] private claims;
     Link[] private links;
 
@@ -36,8 +36,12 @@ contract PostRegistry {
     address public owner;
     LinkGraph public linkGraph;
 
+    IVSPToken public immutable vspToken;
+    IPostingFeePolicy public immutable feePolicy;
+
     event PostCreated(uint256 indexed postId, address indexed creator, ContentType contentType);
     event LinkGraphSet(address indexed linkGraph);
+    event FeeBurned(uint256 indexed postId, uint256 feeAmount);
 
     error InvalidClaim();
     error IndependentPostDoesNotExist();
@@ -49,13 +53,14 @@ contract PostRegistry {
     error LinkGraphAlreadySet();
     error LinkGraphZeroAddress();
     error LinkGraphNotSet();
+    error FeeTransferFailed();
 
-    constructor() {
+    constructor(address vspTokenAddress, address feePolicyAddress) {
         owner = msg.sender;
+        vspToken = IVSPToken(vspTokenAddress);
+        feePolicy = IPostingFeePolicy(feePolicyAddress);
     }
 
-    /// @notice One-time wiring to the LinkGraph contract.
-    /// @dev IMPORTANT: LinkGraph.registry must be set separately by LinkGraph.owner via LinkGraph.setRegistry(address(this)).
     function setLinkGraph(address linkGraph_) external {
         if (msg.sender != owner) revert NotOwner();
         if (address(linkGraph) != address(0)) revert LinkGraphAlreadySet();
@@ -65,8 +70,21 @@ contract PostRegistry {
         emit LinkGraphSet(linkGraph_);
     }
 
+    function _chargeFee() internal returns (uint256 fee) {
+        fee = feePolicy.postingFeeVSP();
+        if (fee == 0) return 0;
+
+        bool ok = IERC20(address(vspToken)).transferFrom(msg.sender, address(this), fee);
+        if (!ok) revert FeeTransferFailed();
+
+        vspToken.burn(fee);
+        emit FeeBurned(nextPostId, fee);  // Emit early for logging
+    }
+
     function createClaim(string calldata text) external returns (uint256 postId) {
         if (bytes(text).length == 0) revert InvalidClaim();
+
+        uint256 fee = _chargeFee();
 
         uint256 claimId = claims.length;
         claims.push(Claim({text: text}));
@@ -76,7 +94,8 @@ contract PostRegistry {
             creator: msg.sender,
             timestamp: block.timestamp,
             contentType: ContentType.Claim,
-            contentId: claimId
+            contentId: claimId,
+            creationFee: fee
         });
 
         emit PostCreated(postId, msg.sender, ContentType.Claim);
@@ -87,56 +106,52 @@ contract PostRegistry {
         uint256 dependentPostId,
         bool isChallenge
     ) external returns (uint256 postId) {
+        if (address(linkGraph) == address(0)) revert LinkGraphNotSet();
         if (!_exists(independentPostId)) revert IndependentPostDoesNotExist();
         if (!_exists(dependentPostId)) revert DependentPostDoesNotExist();
 
-        if (posts[independentPostId].contentType != ContentType.Claim) revert IndependentMustBeClaim();
-        if (posts[dependentPostId].contentType != ContentType.Claim) revert DependentMustBeClaim();
+        Post memory indep = posts[independentPostId];
+        Post memory dep = posts[dependentPostId];
 
-        if (address(linkGraph) == address(0)) revert LinkGraphNotSet();
+        if (indep.contentType != ContentType.Claim) revert IndependentMustBeClaim();
+        if (dep.contentType != ContentType.Claim) revert DependentMustBeClaim();
 
-        // Allocate link postId first (safe because revert rolls back)
-        postId = nextPostId++;
+        uint256 fee = _chargeFee();
 
         uint256 linkId = links.length;
-        links.push(
-            Link({
-                independentPostId: independentPostId,
-                dependentPostId: dependentPostId,
-                isChallenge: isChallenge
-            })
-        );
+        links.push(Link({
+            independentPostId: independentPostId,
+            dependentPostId: dependentPostId,
+            isChallenge: isChallenge
+        }));
 
+        postId = nextPostId++;
         posts[postId] = Post({
             creator: msg.sender,
             timestamp: block.timestamp,
             contentType: ContentType.Link,
-            contentId: linkId
+            contentId: linkId,
+            creationFee: fee
         });
 
-        // DAG enforcement + metadata storage
-        // NOTE: This will revert NotRegistry() unless LinkGraph.setRegistry(address(this)) has already been called.
         linkGraph.addEdge(independentPostId, dependentPostId, postId, isChallenge);
 
         emit PostCreated(postId, msg.sender, ContentType.Link);
     }
 
-    function getPost(uint256 postId) external view returns (address, uint256, ContentType, uint256) {
-        Post storage p = posts[postId];
-        return (p.creator, p.timestamp, p.contentType, p.contentId);
+    function getPost(uint256 postId) external view returns (Post memory) {
+        return posts[postId];
     }
 
     function getClaim(uint256 claimId) external view returns (string memory) {
         return claims[claimId].text;
     }
 
-    function getLink(uint256 linkId) external view returns (uint256, uint256, bool) {
-        Link storage l = links[linkId];
-        return (l.independentPostId, l.dependentPostId, l.isChallenge);
+    function getLink(uint256 linkId) external view returns (Link memory) {
+        return links[linkId];
     }
 
     function _exists(uint256 postId) internal view returns (bool) {
         return postId < nextPostId;
     }
 }
-

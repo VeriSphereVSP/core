@@ -1,5 +1,7 @@
 [profile.default]
 src = "src"
+test = "test"
+script = "script"
 out = "out"
 libs = ["lib"]
 cache = true
@@ -13,8 +15,7 @@ remappings = [
 ]
 
 [rpc_endpoints]
-fuji = "https://api.avax-test.network/ext/bc/C/rpc"
-avalanche = "https://api.avax.network/ext/bc/C/rpc"
+fuji = "${AVALANCHE_FUJI_RPC}"
 
 [etherscan]
 # Fuji: No API key required; Foundry uses placeholder internally

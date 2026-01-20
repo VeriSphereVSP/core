@@ -6,6 +6,7 @@ import "./interfaces/IVSPToken.sol";
 
 /// @title StakeEngine
 /// @notice Handles staking, queue positions, and epoch-based growth/decay.
+/// @dev Fee logic is NOT handled here.
 contract StakeEngine {
     uint8 public constant SIDE_SUPPORT = 0;
     uint8 public constant SIDE_CHALLENGE = 1;
@@ -45,10 +46,6 @@ contract StakeEngine {
     uint256 public constant P_MIN = 1e17;
     uint256 public constant P_MAX = 1e18;
 
-    /// @notice Minimum total stake required for a post to be economically active (ScoreEngine gating).
-    /// @dev MUST be non-zero to avoid accidental "active when empty" semantics.
-    uint256 public postingFeeThreshold;
-
     error InvalidSide();
     error AmountZero();
     error NotEnoughStake();
@@ -64,15 +61,7 @@ contract StakeEngine {
         if (vspToken_ == address(0)) revert ZeroAddressToken();
         ERC20_TOKEN = IERC20(vspToken_);
         VSP_TOKEN = IVSPToken(vspToken_);
-
-        // Keep tests + ScoreEngine semantics sane: "empty post" must not be active.
-        // Tests use raw small units (1, 10, 100) so use 1 (not 1e18).
-        postingFeeThreshold = 1;
     }
-
-    // ------------------------------------------------------------------------
-    // Views (required by IStakeEngine consumers)
-    // ------------------------------------------------------------------------
 
     function getPostTotals(uint256 postId)
         external
@@ -84,10 +73,6 @@ contract StakeEngine {
         challenge = ps.sides[SIDE_CHALLENGE].total;
     }
 
-    // ------------------------------------------------------------------------
-    // External API
-    // ------------------------------------------------------------------------
-
     function stake(uint256 postId, uint8 side, uint256 amount) external {
         if (amount == 0) revert AmountZero();
         if (side > 1) revert InvalidSide();
@@ -97,10 +82,7 @@ contract StakeEngine {
 
         PostState storage ps = posts[postId];
         uint256 epoch = _currentEpoch();
-
-        if (ps.lastUpdatedEpoch == 0) {
-            ps.lastUpdatedEpoch = epoch;
-        }
+        if (ps.lastUpdatedEpoch == 0) ps.lastUpdatedEpoch = epoch;
 
         _addLot(postId, side, amount, msg.sender);
         emit StakeAdded(postId, msg.sender, side, amount);
@@ -156,7 +138,6 @@ contract StakeEngine {
         }
 
         uint256 epochsElapsed = epoch - last;
-
         SideQueue storage qs = ps.sides[SIDE_SUPPORT];
         SideQueue storage qc = ps.sides[SIDE_CHALLENGE];
 
@@ -164,7 +145,7 @@ contract StakeEngine {
         uint256 D = qc.total;
         uint256 T = A + D;
 
-        if (T == 0 || sMax == 0 || T < postingFeeThreshold) {
+        if (T == 0 || sMax == 0) {
             ps.lastUpdatedEpoch = epoch;
             return;
         }
@@ -202,14 +183,10 @@ contract StakeEngine {
         }
 
         _recomputePostTotals(postId);
-
         ps.lastUpdatedEpoch = epoch;
+
         emit PostUpdated(postId, epoch, qs.total, qc.total);
     }
-
-    // ------------------------------------------------------------------------
-    // Internal helpers
-    // ------------------------------------------------------------------------
 
     function _currentEpoch() internal view returns (uint256) {
         return block.timestamp / EPOCH_LENGTH;
@@ -234,7 +211,6 @@ contract StakeEngine {
         );
 
         q.total = newTotal;
-
         uint256 TT = ps.sides[0].total + ps.sides[1].total;
         if (TT > sMax) sMax = TT;
     }
