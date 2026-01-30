@@ -25,9 +25,6 @@ objects/
 
 # Allow tracked submodules
 lib/*
-!lib/
-!lib/chainlink
-!lib/chainlink-brownie-contract
 
 # OS
 .DS_Store

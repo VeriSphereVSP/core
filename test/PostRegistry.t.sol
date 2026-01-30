@@ -2,25 +2,38 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 import "../src/interfaces/IVSPToken.sol";
-import "../src/governance/PostingFeePolicy.sol";  // For mock
+import "../src/governance/PostingFeePolicy.sol";
+
+// -----------------------------------------------------------------------------
+// Mocks
+// -----------------------------------------------------------------------------
 
 contract MockVSP is IVSPToken {
     mapping(address => uint256) public balances;
     mapping(address => mapping(address => uint256)) public allowances;
 
-    function mint(address to, uint256 amount) external {}
-    function burn(uint256 amount) external {}
+    function mint(address, uint256) external {}
+    function burn(uint256) external {}
     function burnFrom(address from, uint256 amount) external {
         balances[from] -= amount;
     }
-    function transfer(address to, uint256 amount) external returns (bool) { return true; }
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) { return true; }
-    function balanceOf(address account) external view returns (uint256) { return balances[account]; }
-    function approve(address spender, uint256 amount) external returns (bool) { return true; }
-    function allowance(address owner, address spender) external view returns (uint256) { return allowances[owner][spender]; }
+
+    function transfer(address, uint256) external pure returns (bool) { return true; }
+    function transferFrom(address, address, uint256) external pure returns (bool) { return true; }
+
+    function balanceOf(address account) external view returns (uint256) {
+        return balances[account];
+    }
+
+    function approve(address, uint256) external pure returns (bool) { return true; }
+    function allowance(address owner, address spender) external view returns (uint256) {
+        return allowances[owner][spender];
+    }
 }
 
 contract MockPostingFeePolicy is IPostingFeePolicy {
@@ -35,6 +48,10 @@ contract MockPostingFeePolicy is IPostingFeePolicy {
     }
 }
 
+// -----------------------------------------------------------------------------
+// Tests
+// -----------------------------------------------------------------------------
+
 contract PostRegistryTest is Test {
     PostRegistry registry;
     LinkGraph graph;
@@ -43,11 +60,45 @@ contract PostRegistryTest is Test {
 
     function setUp() public {
         vsp = new MockVSP();
-        feePolicy = new MockPostingFeePolicy(100);  // Example fee
+        feePolicy = new MockPostingFeePolicy(100); // example fee
 
-        registry = new PostRegistry(address(vsp), address(feePolicy));
+        // ------------------------------------------------------------
+        // Deploy PostRegistry via ERC1967Proxy
+        // ------------------------------------------------------------
 
-        graph = new LinkGraph(address(this));
+        registry = PostRegistry(
+            address(
+                new ERC1967Proxy(
+                    address(new PostRegistry()),
+                    abi.encodeCall(
+                        PostRegistry.initialize,
+                        (
+                            address(this),     // governance
+                            address(vsp),
+                            address(feePolicy)
+                        )
+                    )
+                )
+            )
+        );
+
+        // ------------------------------------------------------------
+        // Deploy LinkGraph via ERC1967Proxy
+        // ------------------------------------------------------------
+
+        graph = LinkGraph(
+            address(
+                new ERC1967Proxy(
+                    address(new LinkGraph()),
+                    abi.encodeCall(
+                        LinkGraph.initialize,
+                        (address(this)) // governance
+                    )
+                )
+            )
+        );
+
+        // Wire permissions (same as before)
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
     }
@@ -109,3 +160,4 @@ contract PostRegistryTest is Test {
         registry.createClaim("");
     }
 }
+

@@ -1,0 +1,202 @@
+// SPDX-License-Identifier: MIT
+// After deployment, to send VSP use: cast send $STAKE_PROXY "upgradeTo(address)" $NEW_STAKE_IMPL  --from $GOVERNANCE --rpc-url $RPC
+pragma solidity ^0.8.20;
+
+import "forge-std/Script.sol";
+import "forge-std/StdJson.sol";
+
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import "@openzeppelin/contracts/governance/TimelockController.sol";
+
+import "../src/authority/Authority.sol";
+import "../src/VSPToken.sol";
+
+import "../src/PostRegistry.sol";
+import "../src/LinkGraph.sol";
+import "../src/StakeEngine.sol";
+import "../src/ScoreEngine.sol";
+import "../src/ProtocolViews.sol";
+
+import "../src/governance/PostingFeePolicy.sol";
+import "../src/governance/ClaimActivityPolicy.sol";
+import "../src/governance/StakeRatePolicy.sol";
+
+contract Deploy is Script {
+    using stdJson for string;
+
+    function run() external {
+        uint256 pk = vm.envUint("PRIVATE_KEY");
+        string memory env = vm.envOr("DEPLOY_ENV", string("dev"));
+
+        address deployer = vm.addr(pk);
+        vm.startBroadcast(pk);
+
+        // ------------------------------------------------------------
+        // Governance
+        // ------------------------------------------------------------
+
+        bool isLocal =
+            keccak256(bytes(env)) == keccak256("dev") ||
+            keccak256(bytes(env)) == keccak256("testnet") ||
+            keccak256(bytes(env)) == keccak256("fuji");
+
+        address gov = isLocal
+            ? deployer
+            : vm.envAddress("GOVERNANCE_MULTISIG");
+
+        TimelockController timelock = new TimelockController(
+            2 days,
+            _arr(gov),
+            _arr(gov),
+            address(0)
+        );
+
+        // ------------------------------------------------------------
+        // Authority + Token
+        // ------------------------------------------------------------
+
+        Authority authority = new Authority(gov);
+
+        VSPToken token = new VSPToken(address(authority));
+
+        authority.setMinter(gov, true);
+        authority.setBurner(gov, true);
+
+        // ------------------------------------------------------------
+        // Governance policies (NOT proxied — OK)
+        // ------------------------------------------------------------
+
+        PostingFeePolicy postingFeePolicy =
+            new PostingFeePolicy(address(timelock), 1e18);
+
+        ClaimActivityPolicy activityPolicy =
+            new ClaimActivityPolicy(address(timelock), 1e18);
+
+        StakeRatePolicy stakeRatePolicy =
+            new StakeRatePolicy(
+                address(timelock),
+                0,
+                50e16
+            );
+
+        // ------------------------------------------------------------
+        // StakeEngine (UUPS)
+        // ------------------------------------------------------------
+
+        StakeEngine stakeImpl = new StakeEngine();
+
+        ERC1967Proxy stakeProxy = new ERC1967Proxy(
+            address(stakeImpl),
+            abi.encodeCall(
+                StakeEngine.initialize,
+                (
+                    address(timelock),
+                    address(token),
+                    address(stakeRatePolicy)
+                )
+            )
+        );
+
+        StakeEngine stake = StakeEngine(address(stakeProxy));
+
+        // ------------------------------------------------------------
+        // PostRegistry (UUPS)
+        // ------------------------------------------------------------
+
+        PostRegistry registryImpl = new PostRegistry();
+
+        ERC1967Proxy registryProxy = new ERC1967Proxy(
+            address(registryImpl),
+            abi.encodeCall(
+                PostRegistry.initialize,
+                (
+                    address(timelock),
+                    address(token),
+                    address(postingFeePolicy)
+                )
+            )
+        );
+
+        PostRegistry registry = PostRegistry(address(registryProxy));
+
+        // ------------------------------------------------------------
+        // LinkGraph (UUPS)
+        // ------------------------------------------------------------
+
+        LinkGraph graphImpl = new LinkGraph();
+
+        ERC1967Proxy graphProxy = new ERC1967Proxy(
+            address(graphImpl),
+            abi.encodeCall(
+                LinkGraph.initialize,
+                (address(timelock))
+            )
+        );
+
+        LinkGraph graph = LinkGraph(address(graphProxy));
+
+        // ------------------------------------------------------------
+        // ScoreEngine (UUPS)
+        // ------------------------------------------------------------
+
+        ScoreEngine scoreImpl = new ScoreEngine();
+
+        ERC1967Proxy scoreProxy = new ERC1967Proxy(
+            address(scoreImpl),
+            abi.encodeCall(
+                ScoreEngine.initialize,
+                (
+                    address(timelock),
+                    address(registry),
+                    address(stake),
+                    address(graph),
+                    address(postingFeePolicy),
+                    address(activityPolicy)
+                )
+            )
+        );
+
+        ScoreEngine score = ScoreEngine(address(scoreProxy));
+
+        // ------------------------------------------------------------
+        // ProtocolViews (UUPS)
+        // ------------------------------------------------------------
+
+        ProtocolViews viewsImpl = new ProtocolViews();
+
+        ERC1967Proxy viewsProxy = new ERC1967Proxy(
+            address(viewsImpl),
+            abi.encodeCall(
+                ProtocolViews.initialize,
+                (
+                    address(timelock),
+                    address(registry),
+                    address(stake),
+                    address(graph),
+                    address(score),
+                    address(postingFeePolicy)
+                )
+            )
+        );
+
+        ProtocolViews views = ProtocolViews(address(viewsProxy));
+
+        // ------------------------------------------------------------
+        // Wiring & permissions
+        // ------------------------------------------------------------
+
+        authority.setMinter(address(stake), true);
+        authority.setBurner(address(stake), true);
+
+        graph.setRegistry(address(registry));
+        registry.setLinkGraph(address(graph));
+
+        vm.stopBroadcast();
+    }
+
+    function _arr(address a) internal pure returns (address[] memory r) {
+        r = new address;
+        r[0] = a;
+    }
+}
+

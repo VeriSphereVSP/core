@@ -1,8 +1,8 @@
-    // SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
-import "forge-std/StdJson.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import "../src/authority/Authority.sol";
 import "../src/VSPToken.sol";
@@ -11,82 +11,107 @@ import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
+
 import "../src/governance/PostingFeePolicy.sol";
-import "@openzeppelin/contracts/governance/TimelockController.sol";
+import "../src/governance/ClaimActivityPolicy.sol";
+import "../src/governance/StakeRatePolicy.sol";
 
 contract Deploy is Script {
-    using stdJson for string;
-
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
-        string memory env = vm.envOr("DEPLOY_ENV", string("dev"));
+        address deployer = vm.addr(pk);
 
         vm.startBroadcast(pk);
 
-        address deployer = msg.sender;
-
         // Governance
-        address gov = keccak256(bytes(env)) == keccak256("dev") ? deployer : vm.envAddress("GOVERNANCE_MULTISIG");
+        address gov = deployer;
 
         Authority authority = new Authority(gov);
 
-        TimelockController timelock = new TimelockController(2 days, _arr(gov), _arr(gov), address(0));
+        PostingFeePolicy postingFeePolicy = new PostingFeePolicy(gov, 1e18);
+        ClaimActivityPolicy activityPolicy = new ClaimActivityPolicy(gov, 1e18);
+        StakeRatePolicy stakeRatePolicy = new StakeRatePolicy(gov, 0, 50e16);
 
-        PostingFeePolicy feePolicy = new PostingFeePolicy(address(timelock), 1e18); // 1 VSP posting fee
-
-        // Token
         VSPToken token = new VSPToken(address(authority));
+
         authority.setMinter(gov, true);
         authority.setBurner(gov, true);
 
-        // Core protocol
-        PostRegistry registry = new PostRegistry(address(token), address(feePolicy));
-
-        LinkGraph graph = new LinkGraph(gov);
-        StakeEngine stake = new StakeEngine(address(token));
-        ScoreEngine score = new ScoreEngine(address(registry), address(stake), address(graph), address(feePolicy));
-        ProtocolViews views = new ProtocolViews(address(registry), address(stake), address(graph), address(score), address(feePolicy));
+        // --- StakeEngine proxy ---
+        StakeEngine stakeImpl = new StakeEngine();
+        ERC1967Proxy stakeProxy = new ERC1967Proxy(
+            address(stakeImpl),
+            abi.encodeCall(
+                StakeEngine.initialize,
+                (gov, address(token), address(stakeRatePolicy))
+            )
+        );
+        StakeEngine stake = StakeEngine(address(stakeProxy));
 
         authority.setMinter(address(stake), true);
         authority.setBurner(address(stake), true);
 
+        // --- PostRegistry ---
+        PostRegistry registryImpl = new PostRegistry();
+        ERC1967Proxy registryProxy = new ERC1967Proxy(
+            address(registryImpl),
+            abi.encodeCall(
+                PostRegistry.initialize,
+                (gov, address(token), address(postingFeePolicy))
+            )
+        );
+        PostRegistry registry = PostRegistry(address(registryProxy));
+
+        // --- LinkGraph ---
+        LinkGraph graphImpl = new LinkGraph();
+        ERC1967Proxy graphProxy = new ERC1967Proxy(
+            address(graphImpl),
+            abi.encodeCall(
+                LinkGraph.initialize,
+                (gov)
+            )
+        );
+        LinkGraph graph = LinkGraph(address(graphProxy));
+
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
 
+        // --- ScoreEngine ---
+        ScoreEngine scoreImpl = new ScoreEngine();
+        ERC1967Proxy scoreProxy = new ERC1967Proxy(
+            address(scoreImpl),
+            abi.encodeCall(
+                ScoreEngine.initialize,
+                (
+                    gov,
+                    address(registry),
+                    address(stake),
+                    address(graph),
+                    address(postingFeePolicy),
+                    address(activityPolicy)
+                )
+            )
+        );
+        ScoreEngine score = ScoreEngine(address(scoreProxy));
+
+        // --- ProtocolViews ---
+        ProtocolViews viewsImpl = new ProtocolViews();
+        ERC1967Proxy viewsProxy = new ERC1967Proxy(
+            address(viewsImpl),
+            abi.encodeCall(
+                ProtocolViews.initialize,
+                (
+                    gov,
+                    address(registry),
+                    address(stake),
+                    address(graph),
+                    address(score),
+                    address(postingFeePolicy)
+                )
+            )
+        );
+
         vm.stopBroadcast();
-
-        _write(string.concat("deployments/", env, ".json"), env, authority, timelock, feePolicy, token, registry, graph, stake, score, views);
-    }
-
-    function _arr(address a) internal pure returns (address[] memory r) {
-        r = new address[](1);
-        r[0] = a;
-    }
-
-    function _write(
-        string memory path,
-        string memory env,
-        Authority authority,
-        TimelockController timelock,
-        PostingFeePolicy feePolicy,
-        VSPToken token,
-        PostRegistry registry,
-        LinkGraph graph,
-        StakeEngine stake,
-        ScoreEngine score,
-        ProtocolViews views
-    ) internal {
-        string memory json;
-        json = json.serialize("env", env);
-        json = json.serialize("Authority", address(authority));
-        json = json.serialize("Timelock", address(timelock));
-        json = json.serialize("PostingFeePolicy", address(feePolicy));
-        json = json.serialize("VSPToken", address(token));
-        json = json.serialize("PostRegistry", address(registry));
-        json = json.serialize("LinkGraph", address(graph));
-        json = json.serialize("StakeEngine", address(stake));
-        json = json.serialize("ScoreEngine", address(score));
-        json = json.serialize("ProtocolViews", address(views));
-        vm.writeJson(json, path);
     }
 }
+

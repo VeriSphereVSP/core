@@ -2,28 +2,50 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 import "../src/interfaces/IVSPToken.sol";
-import "../src/governance/PostingFeePolicy.sol";
+import "../src/interfaces/IPostingFeePolicy.sol";
 
+// ------------------------------------------------------------
+// Mock VSP
+// ------------------------------------------------------------
 contract MockVSP is IVSPToken {
     mapping(address => uint256) public balances;
     mapping(address => mapping(address => uint256)) public allowances;
 
-    function mint(address to, uint256 amount) external {}
-    function burn(uint256 amount) external {}
+    function mint(address, uint256) external {}
+    function burn(uint256) external {}
     function burnFrom(address from, uint256 amount) external {
         balances[from] -= amount;
     }
-    function transfer(address to, uint256 amount) external returns (bool) { return true; }
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) { return true; }
-    function balanceOf(address account) external view returns (uint256) { return balances[account]; }
-    function approve(address spender, uint256 amount) external returns (bool) { return true; }
-    function allowance(address owner, address spender) external view returns (uint256) { return allowances[owner][spender]; }
+
+    function transfer(address, uint256) external pure returns (bool) {
+        return true;
+    }
+
+    function transferFrom(address, address, uint256) external pure returns (bool) {
+        return true;
+    }
+
+    function balanceOf(address account) external view returns (uint256) {
+        return balances[account];
+    }
+
+    function approve(address, uint256) external pure returns (bool) {
+        return true;
+    }
+
+    function allowance(address owner, address spender) external view returns (uint256) {
+        return allowances[owner][spender];
+    }
 }
 
+// ------------------------------------------------------------
+// Mock Posting Fee Policy
+// ------------------------------------------------------------
 contract MockPostingFeePolicy is IPostingFeePolicy {
     uint256 public fee;
 
@@ -36,6 +58,9 @@ contract MockPostingFeePolicy is IPostingFeePolicy {
     }
 }
 
+// ------------------------------------------------------------
+// Tests
+// ------------------------------------------------------------
 contract LinkGraphAcyclicTest is Test {
     PostRegistry registry;
     LinkGraph graph;
@@ -44,9 +69,40 @@ contract LinkGraphAcyclicTest is Test {
         MockVSP vsp = new MockVSP();
         MockPostingFeePolicy feePolicy = new MockPostingFeePolicy(100);
 
-        registry = new PostRegistry(address(vsp), address(feePolicy));
+        // ------------------------------------------------------------
+        // PostRegistry (proxy)
+        // ------------------------------------------------------------
+        registry = PostRegistry(
+            address(
+                new ERC1967Proxy(
+                    address(new PostRegistry()),
+                    abi.encodeCall(
+                        PostRegistry.initialize,
+                        (
+                            address(this),     // governance
+                            address(vsp),
+                            address(feePolicy)
+                        )
+                    )
+                )
+            )
+        );
 
-        graph = new LinkGraph(address(this));
+        // ------------------------------------------------------------
+        // LinkGraph (proxy)
+        // ------------------------------------------------------------
+        graph = LinkGraph(
+            address(
+                new ERC1967Proxy(
+                    address(new LinkGraph()),
+                    abi.encodeCall(
+                        LinkGraph.initialize,
+                        (address(this)) // governance
+                    )
+                )
+            )
+        );
+
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
     }
@@ -73,7 +129,7 @@ contract LinkGraphAcyclicTest is Test {
         registry.createLink(a, b, false);
         registry.createLink(b, c, false);
 
-        vm.expectRevert(); // CycleDetected or similar
+        vm.expectRevert(); // CycleDetected
         registry.createLink(c, a, false);
     }
 
@@ -93,3 +149,4 @@ contract LinkGraphAcyclicTest is Test {
         assertEq(inC.length, 2);
     }
 }
+

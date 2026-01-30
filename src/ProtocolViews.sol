@@ -6,15 +6,14 @@ import "./LinkGraph.sol";
 import "./ScoreEngine.sol";
 import "./interfaces/IStakeEngine.sol";
 import "./interfaces/IPostingFeePolicy.sol";
+import "./governance/GovernedUpgradeable.sol";
 
-/// @title ProtocolViews
-/// @notice Read-only aggregation layer for UI/indexers.
-contract ProtocolViews {
-    PostRegistry public immutable registry;
-    IStakeEngine public immutable stake;
-    LinkGraph public immutable graph;
-    ScoreEngine public immutable score;
-    IPostingFeePolicy public immutable feePolicy;
+contract ProtocolViews is GovernedUpgradeable {
+    PostRegistry public registry;
+    IStakeEngine public stake;
+    LinkGraph public graph;
+    ScoreEngine public score;
+    IPostingFeePolicy public feePolicy;
 
     struct ClaimSummary {
         string text;
@@ -29,13 +28,19 @@ contract ProtocolViews {
         uint256 outgoingCount;
     }
 
-    constructor(
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
+        address governance_,
         address registry_,
         address stake_,
         address graph_,
         address score_,
         address feePolicy_
-    ) {
+    ) external initializer {
+        __GovernedUpgradeable_init(governance_);
         registry = PostRegistry(registry_);
         stake = IStakeEngine(stake_);
         graph = LinkGraph(graph_);
@@ -52,40 +57,46 @@ contract ProtocolViews {
         require(p.contentType == PostRegistry.ContentType.Claim, "not claim");
 
         s.text = registry.getClaim(p.contentId);
-
-        (s.supportStake, s.challengeStake) =
-            stake.getPostTotals(claimPostId);
-
+        (s.supportStake, s.challengeStake) = stake.getPostTotals(claimPostId);
         s.totalStake = s.supportStake + s.challengeStake;
         s.postingFee = feePolicy.postingFeeVSP();
         s.isActive = s.totalStake >= s.postingFee;
-
-        // ScoreEngine already enforces Model B gating
         s.baseVSRay = score.baseVSRay(claimPostId);
         s.effectiveVSRay = score.effectiveVSRay(claimPostId);
-
         s.incomingCount = graph.getIncoming(claimPostId).length;
         s.outgoingCount = graph.getOutgoing(claimPostId).length;
     }
 
-    // ---------------------------------------------------------------------
-    // Passthrough helpers
-    // ---------------------------------------------------------------------
-
-    function postingFeeVSP() external view returns (uint256) {
+    function postingFeeVSP() 
+    	external 
+	view 
+	returns (uint256)
+    {
         return feePolicy.postingFeeVSP();
     }
 
-    function isActive(uint256 postId) external view returns (bool) {
+    function isActive(uint256 postId) 
+        external 
+	view 
+	returns (bool)
+    {
         (uint256 s, uint256 c) = stake.getPostTotals(postId);
         return (s + c) >= feePolicy.postingFeeVSP();
     }
 
-    function getBaseVSRay(uint256 postId) external view returns (int256) {
+    function getBaseVSRay(uint256 postId) 
+        external 
+	view 
+	returns (int256) 
+    {
         return score.baseVSRay(postId);
     }
 
-    function getEffectiveVSRay(uint256 postId) external view returns (int256) {
+    function getEffectiveVSRay(uint256 postId) 
+        external 
+	view 
+	returns (int256) 
+    {
         return score.effectiveVSRay(postId);
     }
 
@@ -112,9 +123,12 @@ contract ProtocolViews {
     {
         PostRegistry.Post memory p = registry.getPost(linkPostId);
         require(p.contentType == PostRegistry.ContentType.Link, "not link");
-
+    
         PostRegistry.Link memory l = registry.getLink(p.contentId);
         return (l.independentPostId, l.dependentPostId, l.isChallenge);
     }
+
+    
+    uint256[50] private __gap;
 }
 

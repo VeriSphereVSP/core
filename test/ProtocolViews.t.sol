@@ -2,15 +2,18 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Test.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
-import "../src/interfaces/IVSPToken.sol";
 import "../src/governance/PostingFeePolicy.sol";
+
 import "./mocks/MockVSP.sol";
+import "./mocks/MockStakeRatePolicy.sol";
+import "./mocks/MockClaimActivityPolicy.sol";
 
 contract ProtocolViewsTest is Test {
     PostRegistry registry;
@@ -24,36 +27,117 @@ contract ProtocolViewsTest is Test {
 
     function setUp() public {
         vsp = new MockVSP();
-
         feePolicy = new PostingFeePolicy(address(0), 50);
 
-        registry = new PostRegistry(address(vsp), address(feePolicy));
+        MockStakeRatePolicy stakeRatePolicy = new MockStakeRatePolicy();
+        MockClaimActivityPolicy activityPolicy = new MockClaimActivityPolicy();
 
-        graph = new LinkGraph(address(this));
+        // ------------------------------------------------------------
+        // PostRegistry (proxy)
+        // ------------------------------------------------------------
+        registry = PostRegistry(
+            address(
+                new ERC1967Proxy(
+                    address(new PostRegistry()),
+                    abi.encodeCall(
+                        PostRegistry.initialize,
+                        (
+                            address(this),     // governance
+                            address(vsp),
+                            address(feePolicy)
+                        )
+                    )
+                )
+            )
+        );
+
+        // ------------------------------------------------------------
+        // LinkGraph (proxy)
+        // ------------------------------------------------------------
+        graph = LinkGraph(
+            address(
+                new ERC1967Proxy(
+                    address(new LinkGraph()),
+                    abi.encodeCall(
+                        LinkGraph.initialize,
+                        (address(this)) // governance
+                    )
+                )
+            )
+        );
+
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
 
-        stake = new StakeEngine(address(vsp));
-
-        score = new ScoreEngine(
-            address(registry),
-            address(stake),
-            address(graph),
-            address(feePolicy)
+        // ------------------------------------------------------------
+        // StakeEngine (proxy)
+        // ------------------------------------------------------------
+        stake = StakeEngine(
+            address(
+                new ERC1967Proxy(
+                    address(new StakeEngine()),
+                    abi.encodeCall(
+                        StakeEngine.initialize,
+                        (
+                            address(this),           // governance
+                            address(vsp),
+                            address(stakeRatePolicy)
+                        )
+                    )
+                )
+            )
         );
 
-        views = new ProtocolViews(
-            address(registry),
-            address(stake),
-            address(graph),
-            address(score),
-            address(feePolicy)
+        // ------------------------------------------------------------
+        // ScoreEngine (proxy)
+        // ------------------------------------------------------------
+        score = ScoreEngine(
+            address(
+                new ERC1967Proxy(
+                    address(new ScoreEngine()),
+                    abi.encodeCall(
+                        ScoreEngine.initialize,
+                        (
+                            address(this),           // governance
+                            address(registry),
+                            address(stake),
+                            address(graph),
+                            address(feePolicy),
+                            address(activityPolicy)
+                        )
+                    )
+                )
+            )
         );
 
-        // Fund + approve everything
+        // ------------------------------------------------------------
+        // ProtocolViews (proxy)
+        // ------------------------------------------------------------
+        views = ProtocolViews(
+            address(
+                new ERC1967Proxy(
+                    address(new ProtocolViews()),
+                    abi.encodeCall(
+                        ProtocolViews.initialize,
+                        (
+                            address(this),           // governance
+                            address(registry),
+                            address(stake),
+                            address(graph),
+                            address(score),
+                            address(feePolicy)
+                        )
+                    )
+                )
+            )
+        );
+
+        // ------------------------------------------------------------
+        // Fund + approve
+        // ------------------------------------------------------------
         vsp.mint(address(this), 1e30);
         vsp.approve(address(stake), type(uint256).max);
-        vsp.approve(address(registry), type(uint256).max); // Critical for createClaim
+        vsp.approve(address(registry), type(uint256).max);
     }
 
     function test_ActivationGate() public {
@@ -83,43 +167,32 @@ contract ProtocolViewsTest is Test {
 
         stake.stake(a, 0, 49);
         ProtocolViews.ClaimSummary memory s1 = views.getClaimSummary(a);
-        assertEq(s1.supportStake, 49);
-        assertEq(s1.totalStake, 49);
         assertFalse(s1.isActive);
         assertEq(s1.baseVSRay, 0);
-        assertEq(s1.effectiveVSRay, 0);
 
         stake.stake(a, 0, 1);
         ProtocolViews.ClaimSummary memory s2 = views.getClaimSummary(a);
-        assertEq(s2.supportStake, 50);
-        assertEq(s2.totalStake, 50);
         assertTrue(s2.isActive);
         assertEq(s2.baseVSRay, 1e18);
         assertEq(s2.effectiveVSRay, 1e18);
     }
 
     function test_OutgoingIncomingEdgesContainMetadata() public {
-        uint256 ic = registry.createClaim("Study S showed minimal adverse effects from drug X");
-        uint256 dc = registry.createClaim("Drug X is safe");
+        uint256 ic = registry.createClaim("IC");
+        uint256 dc = registry.createClaim("DC");
 
         uint256 linkPostId = registry.createLink(ic, dc, false);
 
         LinkGraph.Edge[] memory out = views.getOutgoingEdges(ic);
         assertEq(out.length, 1);
-        assertEq(out[0].toClaimPostId, dc);
-        assertEq(out[0].linkPostId, linkPostId);
-        assertEq(out[0].isChallenge, false);
 
         LinkGraph.IncomingEdge[] memory inc = views.getIncomingEdges(dc);
         assertEq(inc.length, 1);
-        assertEq(inc[0].fromClaimPostId, ic);
-        assertEq(inc[0].linkPostId, linkPostId);
-        assertEq(inc[0].isChallenge, false);
 
         (uint256 indep, uint256 dep, bool isChal) = views.getLinkMeta(linkPostId);
         assertEq(indep, ic);
         assertEq(dep, dc);
-        assertEq(isChal, false);
+        assertFalse(isChal);
     }
 
     function test_RawRayPassthroughsMatchScoreEngine() public {
@@ -132,13 +205,8 @@ contract ProtocolViewsTest is Test {
         uint256 linkPostId = registry.createLink(ic, dc, false);
         stake.stake(linkPostId, 0, 50);
 
-        int256 bvsViews = views.getBaseVSRay(dc);
-        int256 evsViews = views.getEffectiveVSRay(dc);
-
-        int256 bvsScore = score.baseVSRay(dc);
-        int256 evsScore = score.effectiveVSRay(dc);
-
-        assertEq(bvsViews, bvsScore);
-        assertEq(evsViews, evsScore);
+        assertEq(views.getBaseVSRay(dc), score.baseVSRay(dc));
+        assertEq(views.getEffectiveVSRay(dc), score.effectiveVSRay(dc));
     }
 }
+

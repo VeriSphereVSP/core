@@ -4,9 +4,10 @@ pragma solidity ^0.8.20;
 import "./LinkGraph.sol";
 import "./interfaces/IVSPToken.sol";
 import "./interfaces/IPostingFeePolicy.sol";
+import "./governance/GovernedUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract PostRegistry {
+contract PostRegistry is GovernedUpgradeable {
     enum ContentType { Claim, Link }
 
     struct Post {
@@ -14,7 +15,7 @@ contract PostRegistry {
         uint256 timestamp;
         ContentType contentType;
         uint256 contentId;
-        uint256 creationFee;  // Burned VSP amount (counts as virtual support if T >= fee)
+        uint256 creationFee;
     }
 
     struct Claim {
@@ -33,11 +34,9 @@ contract PostRegistry {
 
     uint256 public nextPostId;
 
-    address public owner;
     LinkGraph public linkGraph;
-
-    IVSPToken public immutable vspToken;
-    IPostingFeePolicy public immutable feePolicy;
+    IVSPToken public vspToken;
+    IPostingFeePolicy public feePolicy;
 
     event PostCreated(uint256 indexed postId, address indexed creator, ContentType contentType);
     event LinkGraphSet(address indexed linkGraph);
@@ -48,21 +47,26 @@ contract PostRegistry {
     error DependentPostDoesNotExist();
     error IndependentMustBeClaim();
     error DependentMustBeClaim();
-
-    error NotOwner();
     error LinkGraphAlreadySet();
     error LinkGraphZeroAddress();
     error LinkGraphNotSet();
     error FeeTransferFailed();
 
-    constructor(address vspTokenAddress, address feePolicyAddress) {
-        owner = msg.sender;
-        vspToken = IVSPToken(vspTokenAddress);
-        feePolicy = IPostingFeePolicy(feePolicyAddress);
+    constructor() {
+        _disableInitializers();
     }
 
-    function setLinkGraph(address linkGraph_) external {
-        if (msg.sender != owner) revert NotOwner();
+    function initialize(
+        address governance_,
+        address vspToken_,
+        address feePolicy_
+    ) external initializer {
+        __GovernedUpgradeable_init(governance_);
+        vspToken = IVSPToken(vspToken_);
+        feePolicy = IPostingFeePolicy(feePolicy_);
+    }
+
+    function setLinkGraph(address linkGraph_) external onlyGovernance {
         if (address(linkGraph) != address(0)) revert LinkGraphAlreadySet();
         if (linkGraph_ == address(0)) revert LinkGraphZeroAddress();
 
@@ -78,7 +82,7 @@ contract PostRegistry {
         if (!ok) revert FeeTransferFailed();
 
         vspToken.burn(fee);
-        emit FeeBurned(nextPostId, fee);  // Emit early for logging
+        emit FeeBurned(nextPostId, fee);
     }
 
     function createClaim(string calldata text) external returns (uint256 postId) {
@@ -87,7 +91,7 @@ contract PostRegistry {
         uint256 fee = _chargeFee();
 
         uint256 claimId = claims.length;
-        claims.push(Claim({text: text}));
+        claims.push(Claim({ text: text }));
 
         postId = nextPostId++;
         posts[postId] = Post({
@@ -154,4 +158,7 @@ contract PostRegistry {
     function _exists(uint256 postId) internal view returns (bool) {
         return postId < nextPostId;
     }
+
+    uint256[50] private __gap;
 }
+
