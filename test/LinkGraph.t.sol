@@ -13,7 +13,7 @@ contract LinkGraphUnitTest is Test {
         graph = LinkGraph(
             address(
                 new ERC1967Proxy(
-                    address(new LinkGraph()),
+                    address(new LinkGraph(address(0))),
                     abi.encodeCall(LinkGraph.initialize, (address(this)))
                 )
             )

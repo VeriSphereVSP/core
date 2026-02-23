@@ -85,7 +85,7 @@ contract ScoreEngineTest is Test {
         registry = PostRegistry(
             address(
                 new ERC1967Proxy(
-                    address(new PostRegistry()),
+                    address(new PostRegistry(address(0))),
                     abi.encodeCall(
                         PostRegistry.initialize,
                         (
@@ -104,7 +104,7 @@ contract ScoreEngineTest is Test {
         graph = LinkGraph(
             address(
                 new ERC1967Proxy(
-                    address(new LinkGraph()),
+                    address(new LinkGraph(address(0))),
                     abi.encodeCall(
                         LinkGraph.initialize,
                         (address(this)) // governance
@@ -122,7 +122,7 @@ contract ScoreEngineTest is Test {
         stake = StakeEngine(
             address(
                 new ERC1967Proxy(
-                    address(new StakeEngine()),
+                    address(new StakeEngine(address(0))),
                     abi.encodeCall(
                         StakeEngine.initialize,
                         (
@@ -141,7 +141,7 @@ contract ScoreEngineTest is Test {
         score = ScoreEngine(
             address(
                 new ERC1967Proxy(
-                    address(new ScoreEngine()),
+                    address(new ScoreEngine(address(0))),
                     abi.encodeCall(
                         ScoreEngine.initialize,
                         (

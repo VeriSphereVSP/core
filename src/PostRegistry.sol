@@ -7,8 +7,15 @@ import "./interfaces/IPostingFeePolicy.sol";
 import "./governance/GovernedUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+/// @title PostRegistry
+/// @notice Creates claims and links on-chain.
+///         Supports gasless meta-transactions via ERC-2771: _msgSender()
+///         resolves to the real user even when a relayer submits the tx.
 contract PostRegistry is GovernedUpgradeable {
-    enum ContentType { Claim, Link }
+    enum ContentType {
+        Claim,
+        Link
+    }
 
     struct Post {
         address creator;
@@ -38,7 +45,11 @@ contract PostRegistry is GovernedUpgradeable {
     IVSPToken public vspToken;
     IPostingFeePolicy public feePolicy;
 
-    event PostCreated(uint256 indexed postId, address indexed creator, ContentType contentType);
+    event PostCreated(
+        uint256 indexed postId,
+        address indexed creator,
+        ContentType contentType
+    );
     event LinkGraphSet(address indexed linkGraph);
     event FeeBurned(uint256 indexed postId, uint256 feeAmount);
 
@@ -52,9 +63,10 @@ contract PostRegistry is GovernedUpgradeable {
     error LinkGraphNotSet();
     error FeeTransferFailed();
 
-    constructor() {
-        _disableInitializers();
-    }
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(
+        address trustedForwarder_
+    ) GovernedUpgradeable(trustedForwarder_) {}
 
     function initialize(
         address governance_,
@@ -69,40 +81,32 @@ contract PostRegistry is GovernedUpgradeable {
     function setLinkGraph(address linkGraph_) external onlyGovernance {
         if (address(linkGraph) != address(0)) revert LinkGraphAlreadySet();
         if (linkGraph_ == address(0)) revert LinkGraphZeroAddress();
-
         linkGraph = LinkGraph(linkGraph_);
         emit LinkGraphSet(linkGraph_);
     }
 
-    function _chargeFee() internal returns (uint256 fee) {
-        fee = feePolicy.postingFeeVSP();
-        if (fee == 0) return 0;
+    // -------- Core write methods (use _msgSender()) --------
 
-        bool ok = IERC20(address(vspToken)).transferFrom(msg.sender, address(this), fee);
-        if (!ok) revert FeeTransferFailed();
-
-        vspToken.burn(fee);
-        emit FeeBurned(nextPostId, fee);
-    }
-
-    function createClaim(string calldata text) external returns (uint256 postId) {
+    function createClaim(
+        string calldata text
+    ) external returns (uint256 postId) {
         if (bytes(text).length == 0) revert InvalidClaim();
 
         uint256 fee = _chargeFee();
 
         uint256 claimId = claims.length;
-        claims.push(Claim({ text: text }));
+        claims.push(Claim({text: text}));
 
         postId = nextPostId++;
         posts[postId] = Post({
-            creator: msg.sender,
+            creator: _msgSender(),
             timestamp: block.timestamp,
             contentType: ContentType.Claim,
             contentId: claimId,
             creationFee: fee
         });
 
-        emit PostCreated(postId, msg.sender, ContentType.Claim);
+        emit PostCreated(postId, _msgSender(), ContentType.Claim);
     }
 
     function createLink(
@@ -116,32 +120,41 @@ contract PostRegistry is GovernedUpgradeable {
 
         Post memory indep = posts[independentPostId];
         Post memory dep = posts[dependentPostId];
-
-        if (indep.contentType != ContentType.Claim) revert IndependentMustBeClaim();
+        if (indep.contentType != ContentType.Claim)
+            revert IndependentMustBeClaim();
         if (dep.contentType != ContentType.Claim) revert DependentMustBeClaim();
 
         uint256 fee = _chargeFee();
 
         uint256 linkId = links.length;
-        links.push(Link({
-            independentPostId: independentPostId,
-            dependentPostId: dependentPostId,
-            isChallenge: isChallenge
-        }));
+        links.push(
+            Link({
+                independentPostId: independentPostId,
+                dependentPostId: dependentPostId,
+                isChallenge: isChallenge
+            })
+        );
 
         postId = nextPostId++;
         posts[postId] = Post({
-            creator: msg.sender,
+            creator: _msgSender(),
             timestamp: block.timestamp,
             contentType: ContentType.Link,
             contentId: linkId,
             creationFee: fee
         });
 
-        linkGraph.addEdge(independentPostId, dependentPostId, postId, isChallenge);
+        linkGraph.addEdge(
+            independentPostId,
+            dependentPostId,
+            postId,
+            isChallenge
+        );
 
-        emit PostCreated(postId, msg.sender, ContentType.Link);
+        emit PostCreated(postId, _msgSender(), ContentType.Link);
     }
+
+    // -------- View methods --------
 
     function getPost(uint256 postId) external view returns (Post memory) {
         return posts[postId];
@@ -155,10 +168,26 @@ contract PostRegistry is GovernedUpgradeable {
         return links[linkId];
     }
 
+    // -------- Internal --------
+
+    function _chargeFee() internal returns (uint256 fee) {
+        fee = feePolicy.postingFeeVSP();
+        if (fee == 0) return 0;
+
+        bool ok = IERC20(address(vspToken)).transferFrom(
+            _msgSender(),
+            address(this),
+            fee
+        );
+        if (!ok) revert FeeTransferFailed();
+
+        vspToken.burn(fee);
+        emit FeeBurned(nextPostId, fee);
+    }
+
     function _exists(uint256 postId) internal view returns (bool) {
         return postId < nextPostId;
     }
 
     uint256[50] private __gap;
 }
-

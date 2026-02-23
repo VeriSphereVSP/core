@@ -91,7 +91,7 @@ contract StakeEngineTest is Test {
         engine = StakeEngine(
             address(
                 new ERC1967Proxy(
-                    address(new StakeEngine()),
+                    address(new StakeEngine(address(0))),
                     abi.encodeCall(
                         StakeEngine.initialize,
                         (

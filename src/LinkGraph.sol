@@ -11,7 +11,12 @@ contract LinkGraph is GovernedUpgradeable {
     error TraversalLimitExceeded();
 
     event RegistrySet(address indexed registry);
-    event EdgeAdded(uint256 indexed from, uint256 indexed to, uint256 indexed linkPostId, bool isChallenge);
+    event EdgeAdded(
+        uint256 indexed from,
+        uint256 indexed to,
+        uint256 indexed linkPostId,
+        bool isChallenge
+    );
 
     struct Edge {
         uint256 toClaimPostId;
@@ -35,9 +40,10 @@ contract LinkGraph is GovernedUpgradeable {
 
     uint256 public constant MAX_VISITS = 4096;
 
-    constructor() {
-        _disableInitializers();
-    }
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(
+        address trustedForwarder_
+    ) GovernedUpgradeable(trustedForwarder_) {}
 
     function initialize(address governance_) external initializer {
         __GovernedUpgradeable_init(governance_);
@@ -64,25 +70,40 @@ contract LinkGraph is GovernedUpgradeable {
         if (_pathExists(toClaimPostId, fromClaimPostId)) revert CycleDetected();
 
         outgoing[fromClaimPostId].push(
-            Edge({ toClaimPostId: toClaimPostId, linkPostId: linkPostId, isChallenge: isChallenge })
+            Edge({
+                toClaimPostId: toClaimPostId,
+                linkPostId: linkPostId,
+                isChallenge: isChallenge
+            })
         );
 
         incoming[toClaimPostId].push(
-            IncomingEdge({ fromClaimPostId: fromClaimPostId, linkPostId: linkPostId, isChallenge: isChallenge })
+            IncomingEdge({
+                fromClaimPostId: fromClaimPostId,
+                linkPostId: linkPostId,
+                isChallenge: isChallenge
+            })
         );
 
         emit EdgeAdded(fromClaimPostId, toClaimPostId, linkPostId, isChallenge);
     }
 
-    function getOutgoing(uint256 claimPostId) external view returns (Edge[] memory) {
+    function getOutgoing(
+        uint256 claimPostId
+    ) external view returns (Edge[] memory) {
         return outgoing[claimPostId];
     }
 
-    function getIncoming(uint256 claimPostId) external view returns (IncomingEdge[] memory) {
+    function getIncoming(
+        uint256 claimPostId
+    ) external view returns (IncomingEdge[] memory) {
         return incoming[claimPostId];
     }
 
-    function _pathExists(uint256 start, uint256 target) internal returns (bool) {
+    function _pathExists(
+        uint256 start,
+        uint256 target
+    ) internal returns (bool) {
         visitToken++;
         uint256 token = visitToken;
 
@@ -113,11 +134,9 @@ contract LinkGraph is GovernedUpgradeable {
         return false;
     }
 
-    function getOutgoingClaims(uint256 claimPostId)
-        external
-        view
-        returns (uint256[] memory)
-    {
+    function getOutgoingClaims(
+        uint256 claimPostId
+    ) external view returns (uint256[] memory) {
         Edge[] storage edges = outgoing[claimPostId];
         uint256[] memory tos = new uint256[](edges.length);
         for (uint256 i = 0; i < edges.length; i++) {
@@ -126,7 +145,5 @@ contract LinkGraph is GovernedUpgradeable {
         return tos;
     }
 
-
     uint256[50] private __gap;
 }
-

@@ -6,6 +6,9 @@ import "./interfaces/IVSPToken.sol";
 import "./governance/StakeRatePolicy.sol";
 import "./governance/GovernedUpgradeable.sol";
 
+/// @title StakeEngine
+/// @notice Manages VSP staking on posts (claims & links).
+///         Supports gasless meta-transactions via ERC-2771.
 contract StakeEngine is GovernedUpgradeable {
     uint8 public constant SIDE_SUPPORT = 0;
     uint8 public constant SIDE_CHALLENGE = 1;
@@ -26,7 +29,7 @@ contract StakeEngine is GovernedUpgradeable {
     }
 
     struct PostState {
-        SideQueue[2] sides;
+        SideQueue[2] sides; // [0] = support, [1] = challenge
         uint256 lastUpdatedEpoch;
     }
 
@@ -43,7 +46,7 @@ contract StakeEngine is GovernedUpgradeable {
     uint256 public constant YEAR_LENGTH = 365 days;
     uint256 private constant RAY = 1e18;
 
-    uint256 private constant SMAX_DECAY_RATE_RAY = 999e15;
+    uint256 private constant SMAX_DECAY_RATE_RAY = 999e15; // 0.999
     uint256 private constant SMAX_MAX_DECAY_EPOCHS = 3650;
 
     error InvalidSide();
@@ -51,11 +54,32 @@ contract StakeEngine is GovernedUpgradeable {
     error NotEnoughStake();
     error ZeroAddressToken();
 
-    event StakeAdded(uint256 indexed postId, address indexed staker, uint8 side, uint256 amount);
-    event StakeWithdrawn(uint256 indexed postId, address indexed staker, uint8 side, uint256 amount, bool lifo);
-    event PostUpdated(uint256 indexed postId, uint256 epoch, uint256 supportTotal, uint256 challengeTotal);
+    event StakeAdded(
+        uint256 indexed postId,
+        address indexed staker,
+        uint8 side,
+        uint256 amount
+    );
+    event StakeWithdrawn(
+        uint256 indexed postId,
+        address indexed staker,
+        uint8 side,
+        uint256 amount,
+        bool lifo
+    );
+    event PostUpdated(
+        uint256 indexed postId,
+        uint256 epoch,
+        uint256 supportTotal,
+        uint256 challengeTotal
+    );
     event EpochMinted(uint256 indexed postId, uint256 amount);
     event EpochBurned(uint256 indexed postId, uint256 amount);
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(
+        address trustedForwarder_
+    ) GovernedUpgradeable(trustedForwarder_) {}
 
     function initialize(
         address governance_,
@@ -63,40 +87,44 @@ contract StakeEngine is GovernedUpgradeable {
         address ratePolicy_
     ) external initializer {
         if (vspToken_ == address(0)) revert ZeroAddressToken();
-
         __GovernedUpgradeable_init(governance_);
-
         ERC20_TOKEN = IERC20(vspToken_);
         VSP_TOKEN = IVSPToken(vspToken_);
         ratePolicy = StakeRatePolicy(ratePolicy_);
-
         sMaxLastUpdatedEpoch = _currentEpoch();
     }
 
-    function getPostTotals(uint256 postId)
-        external
-        view
-        returns (uint256 support, uint256 challenge)
-    {
+    // -------- Read --------
+
+    function getPostTotals(
+        uint256 postId
+    ) external view returns (uint256 support, uint256 challenge) {
         PostState storage ps = posts[postId];
         return (ps.sides[0].total, ps.sides[1].total);
     }
+
+    // -------- Stake / Withdraw (use _msgSender()) --------
 
     function stake(uint256 postId, uint8 side, uint256 amount) external {
         if (amount == 0) revert AmountZero();
         if (side > 1) revert InvalidSide();
 
-        ERC20_TOKEN.transferFrom(msg.sender, address(this), amount);
+        ERC20_TOKEN.transferFrom(_msgSender(), address(this), amount);
 
         PostState storage ps = posts[postId];
         uint256 epoch = _currentEpoch();
         if (ps.lastUpdatedEpoch == 0) ps.lastUpdatedEpoch = epoch;
 
-        _addLot(postId, side, amount, msg.sender);
-        emit StakeAdded(postId, msg.sender, side, amount);
+        _addLot(postId, side, amount, _msgSender());
+        emit StakeAdded(postId, _msgSender(), side, amount);
     }
 
-    function withdraw(uint256 postId, uint8 side, uint256 amount, bool lifo) external {
+    function withdraw(
+        uint256 postId,
+        uint8 side,
+        uint256 amount,
+        bool lifo
+    ) external {
         if (amount == 0) revert AmountZero();
         if (side > 1) revert InvalidSide();
 
@@ -109,7 +137,7 @@ contract StakeEngine is GovernedUpgradeable {
         if (lifo) {
             for (uint256 i = len; i > 0 && remaining > 0; i--) {
                 StakeLot storage lot = q.lots[i - 1];
-                if (lot.staker != msg.sender || lot.amount == 0) continue;
+                if (lot.staker != _msgSender() || lot.amount == 0) continue;
                 uint256 take = lot.amount < remaining ? lot.amount : remaining;
                 lot.amount -= take;
                 remaining -= take;
@@ -117,7 +145,7 @@ contract StakeEngine is GovernedUpgradeable {
         } else {
             for (uint256 i = 0; i < len && remaining > 0; i++) {
                 StakeLot storage lot = q.lots[i];
-                if (lot.staker != msg.sender || lot.amount == 0) continue;
+                if (lot.staker != _msgSender() || lot.amount == 0) continue;
                 uint256 take = lot.amount < remaining ? lot.amount : remaining;
                 lot.amount -= take;
                 remaining -= take;
@@ -127,10 +155,12 @@ contract StakeEngine is GovernedUpgradeable {
         if (remaining > 0) revert NotEnoughStake();
 
         _recomputePostTotals(postId);
-        ERC20_TOKEN.transfer(msg.sender, amount);
+        ERC20_TOKEN.transfer(_msgSender(), amount);
 
-        emit StakeWithdrawn(postId, msg.sender, side, amount, lifo);
+        emit StakeWithdrawn(postId, _msgSender(), side, amount, lifo);
     }
+
+    // -------- Epoch update (permissionless) --------
 
     function updatePost(uint256 postId) external {
         PostState storage ps = posts[postId];
@@ -169,19 +199,34 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 vRay = (absVS * RAY) / T;
         uint256 participationRay = (T * RAY) / sMax;
 
-        uint256 rMin = (ratePolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
-        uint256 rMax = (ratePolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
+        uint256 rMin = (ratePolicy.stakeIntRateMinRay() *
+            EPOCH_LENGTH *
+            epochsElapsed) / YEAR_LENGTH;
+        uint256 rMax = (ratePolicy.stakeIntRateMaxRay() *
+            EPOCH_LENGTH *
+            epochsElapsed) / YEAR_LENGTH;
 
-        uint256 rEff = rMin + ((rMax - rMin) * vRay * participationRay) / (RAY * RAY);
+        uint256 rEff = rMin +
+            ((rMax - rMin) * vRay * participationRay) /
+            (RAY * RAY);
 
-        (uint256 mintS, uint256 burnS) = _applyEpoch(qs, supportWins, true, rEff);
-        (uint256 mintC, uint256 burnC) = _applyEpoch(qc, supportWins, false, rEff);
+        (uint256 mintS, uint256 burnS) = _applyEpoch(
+            qs,
+            supportWins,
+            true,
+            rEff
+        );
+        (uint256 mintC, uint256 burnC) = _applyEpoch(
+            qc,
+            supportWins,
+            false,
+            rEff
+        );
 
         if (mintS + mintC > 0) {
             VSP_TOKEN.mint(address(this), mintS + mintC);
             emit EpochMinted(postId, mintS + mintC);
         }
-
         if (burnS + burnC > 0) {
             VSP_TOKEN.burn(burnS + burnC);
             emit EpochBurned(postId, burnS + burnC);
@@ -192,6 +237,8 @@ contract StakeEngine is GovernedUpgradeable {
 
         emit PostUpdated(postId, epoch, qs.total, qc.total);
     }
+
+    // -------- Internal --------
 
     function _currentEpoch() internal view returns (uint256) {
         return block.timestamp / EPOCH_LENGTH;
@@ -215,7 +262,12 @@ contract StakeEngine is GovernedUpgradeable {
         sMaxLastUpdatedEpoch = currentEpoch;
     }
 
-    function _addLot(uint256 postId, uint8 side, uint256 amount, address staker) internal {
+    function _addLot(
+        uint256 postId,
+        uint8 side,
+        uint256 amount,
+        address staker
+    ) internal {
         SideQueue storage q = posts[postId].sides[side];
 
         uint256 newTotal = q.total + amount;
@@ -230,11 +282,11 @@ contract StakeEngine is GovernedUpgradeable {
                 entryEpoch: _currentEpoch()
             })
         );
-
         q.total = newTotal;
 
         _refreshSMax(_currentEpoch());
-        uint256 TT = posts[postId].sides[0].total + posts[postId].sides[1].total;
+        uint256 TT = posts[postId].sides[0].total +
+            posts[postId].sides[1].total;
         if (TT > sMax) sMax = TT;
     }
 
@@ -247,7 +299,9 @@ contract StakeEngine is GovernedUpgradeable {
         if (TT > sMax) sMax = TT;
     }
 
-    function _recomputeSide(SideQueue storage q) internal returns (uint256 total) {
+    function _recomputeSide(
+        SideQueue storage q
+    ) internal returns (uint256 total) {
         uint256 cursor;
         uint256 write;
 
@@ -278,7 +332,8 @@ contract StakeEngine is GovernedUpgradeable {
     ) internal returns (uint256 minted, uint256 burned) {
         if (q.total == 0 || rEff == 0 || sMax == 0) return (0, 0);
 
-        bool aligned = (supportWins && isSupportSide) || (!supportWins && !isSupportSide);
+        bool aligned = (supportWins && isSupportSide) ||
+            (!supportWins && !isSupportSide);
 
         for (uint256 i = 0; i < q.lots.length; i++) {
             StakeLot storage lot = q.lots[i];
@@ -286,7 +341,6 @@ contract StakeEngine is GovernedUpgradeable {
 
             uint256 wRay = (lot.mid * RAY) / sMax;
             uint256 delta = (lot.amount * rEff * wRay) / (RAY * RAY);
-
             if (delta == 0) continue;
 
             if (aligned) {
@@ -302,4 +356,3 @@ contract StakeEngine is GovernedUpgradeable {
 
     uint256[50] private __gap;
 }
-

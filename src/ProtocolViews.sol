@@ -28,9 +28,10 @@ contract ProtocolViews is GovernedUpgradeable {
         uint256 outgoingCount;
     }
 
-    constructor() {
-        _disableInitializers();
-    }
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(
+        address trustedForwarder_
+    ) GovernedUpgradeable(trustedForwarder_) {}
 
     function initialize(
         address governance_,
@@ -48,11 +49,9 @@ contract ProtocolViews is GovernedUpgradeable {
         feePolicy = IPostingFeePolicy(feePolicy_);
     }
 
-    function getClaimSummary(uint256 claimPostId)
-        external
-        view
-        returns (ClaimSummary memory s)
-    {
+    function getClaimSummary(
+        uint256 claimPostId
+    ) external view returns (ClaimSummary memory s) {
         PostRegistry.Post memory p = registry.getPost(claimPostId);
         require(p.contentType == PostRegistry.ContentType.Claim, "not claim");
 
@@ -67,68 +66,44 @@ contract ProtocolViews is GovernedUpgradeable {
         s.outgoingCount = graph.getOutgoing(claimPostId).length;
     }
 
-    function postingFeeVSP() 
-    	external 
-	view 
-	returns (uint256)
-    {
+    function postingFeeVSP() external view returns (uint256) {
         return feePolicy.postingFeeVSP();
     }
 
-    function isActive(uint256 postId) 
-        external 
-	view 
-	returns (bool)
-    {
+    function isActive(uint256 postId) external view returns (bool) {
         (uint256 s, uint256 c) = stake.getPostTotals(postId);
         return (s + c) >= feePolicy.postingFeeVSP();
     }
 
-    function getBaseVSRay(uint256 postId) 
-        external 
-	view 
-	returns (int256) 
-    {
+    function getBaseVSRay(uint256 postId) external view returns (int256) {
         return score.baseVSRay(postId);
     }
 
-    function getEffectiveVSRay(uint256 postId) 
-        external 
-	view 
-	returns (int256) 
-    {
+    function getEffectiveVSRay(uint256 postId) external view returns (int256) {
         return score.effectiveVSRay(postId);
     }
 
-    function getIncomingEdges(uint256 claimPostId)
-        external
-        view
-        returns (LinkGraph.IncomingEdge[] memory)
-    {
+    function getIncomingEdges(
+        uint256 claimPostId
+    ) external view returns (LinkGraph.IncomingEdge[] memory) {
         return graph.getIncoming(claimPostId);
     }
 
-    function getOutgoingEdges(uint256 claimPostId)
-        external
-        view
-        returns (LinkGraph.Edge[] memory)
-    {
+    function getOutgoingEdges(
+        uint256 claimPostId
+    ) external view returns (LinkGraph.Edge[] memory) {
         return graph.getOutgoing(claimPostId);
     }
 
-    function getLinkMeta(uint256 linkPostId)
-        external
-        view
-        returns (uint256 from, uint256 to, bool isChallenge)
-    {
+    function getLinkMeta(
+        uint256 linkPostId
+    ) external view returns (uint256 from, uint256 to, bool isChallenge) {
         PostRegistry.Post memory p = registry.getPost(linkPostId);
         require(p.contentType == PostRegistry.ContentType.Link, "not link");
-    
+
         PostRegistry.Link memory l = registry.getLink(p.contentId);
         return (l.independentPostId, l.dependentPostId, l.isChallenge);
     }
 
-    
     uint256[50] private __gap;
 }
-

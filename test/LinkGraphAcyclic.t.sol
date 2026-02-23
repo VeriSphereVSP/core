@@ -75,7 +75,7 @@ contract LinkGraphAcyclicTest is Test {
         registry = PostRegistry(
             address(
                 new ERC1967Proxy(
-                    address(new PostRegistry()),
+                    address(new PostRegistry(address(0))),
                     abi.encodeCall(
                         PostRegistry.initialize,
                         (
@@ -94,7 +94,7 @@ contract LinkGraphAcyclicTest is Test {
         graph = LinkGraph(
             address(
                 new ERC1967Proxy(
-                    address(new LinkGraph()),
+                    address(new LinkGraph(address(0))),
                     abi.encodeCall(
                         LinkGraph.initialize,
                         (address(this)) // governance

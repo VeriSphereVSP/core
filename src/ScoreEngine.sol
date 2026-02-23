@@ -21,9 +21,10 @@ contract ScoreEngine is GovernedUpgradeable {
     int256 internal constant RAY = 1e18;
     int256 internal constant MAX_SAFE_INT = type(int128).max;
 
-    constructor() {
-        _disableInitializers();
-    }
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor(
+        address trustedForwarder_
+    ) GovernedUpgradeable(trustedForwarder_) {}
 
     function initialize(
         address governance_,
@@ -53,8 +54,12 @@ contract ScoreEngine is GovernedUpgradeable {
         uint256 Teff = Aeff + D;
         if (Teff == 0) return 0;
 
-        int256 aeffInt = Aeff > uint256(MAX_SAFE_INT) ? MAX_SAFE_INT : Aeff.toInt256();
-        int256 teffInt = Teff > uint256(MAX_SAFE_INT) ? MAX_SAFE_INT : Teff.toInt256();
+        int256 aeffInt = Aeff > uint256(MAX_SAFE_INT)
+            ? MAX_SAFE_INT
+            : Aeff.toInt256();
+        int256 teffInt = Teff > uint256(MAX_SAFE_INT)
+            ? MAX_SAFE_INT
+            : Teff.toInt256();
 
         int256 vs = ((aeffInt * 2 * RAY) / teffInt) - RAY;
         return _clampRay(vs);
@@ -64,7 +69,10 @@ contract ScoreEngine is GovernedUpgradeable {
         return _effectiveVSRay(postId, 0);
     }
 
-    function _effectiveVSRay(uint256 postId, uint256 depth) internal view returns (int256) {
+    function _effectiveVSRay(
+        uint256 postId,
+        uint256 depth
+    ) internal view returns (int256) {
         if (depth > 32) return 0;
 
         uint256 totalStake = _totalStake(postId);
@@ -77,7 +85,8 @@ contract ScoreEngine is GovernedUpgradeable {
         for (uint256 i = 0; i < inc.length; i++) {
             LinkGraph.IncomingEdge memory e = inc[i];
 
-            if (!activityPolicy.isActive(_totalStake(e.fromClaimPostId))) continue;
+            if (!activityPolicy.isActive(_totalStake(e.fromClaimPostId)))
+                continue;
             if (!activityPolicy.isActive(_totalStake(e.linkPostId))) continue;
 
             int256 parentVS = _effectiveVSRay(e.fromClaimPostId, depth + 1);
@@ -105,7 +114,10 @@ contract ScoreEngine is GovernedUpgradeable {
         return s + d;
     }
 
-    function _sumOutgoingLinkStake(uint256 claimPostId, uint256 fee) internal view returns (uint256 sum) {
+    function _sumOutgoingLinkStake(
+        uint256 claimPostId,
+        uint256 fee
+    ) internal view returns (uint256 sum) {
         LinkGraph.Edge[] memory outs = graph.getOutgoing(claimPostId);
         for (uint256 i = 0; i < outs.length; i++) {
             uint256 t = _totalStake(outs[i].linkPostId);
@@ -121,4 +133,3 @@ contract ScoreEngine is GovernedUpgradeable {
 
     uint256[50] private __gap;
 }
-

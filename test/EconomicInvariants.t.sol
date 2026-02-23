@@ -38,7 +38,7 @@ contract EconomicInvariantsTest is Test {
 
         registry = PostRegistry(
             _proxy(
-                address(new PostRegistry()),
+                address(new PostRegistry(address(0))),
                 abi.encodeCall(
                     PostRegistry.initialize,
                     (address(this), address(vsp), address(feePolicy))
@@ -48,14 +48,14 @@ contract EconomicInvariantsTest is Test {
 
         graph = LinkGraph(
             _proxy(
-                address(new LinkGraph()),
+                address(new LinkGraph(address(0))),
                 abi.encodeCall(LinkGraph.initialize, (address(this)))
             )
         );
 
         stake = StakeEngine(
             _proxy(
-                address(new StakeEngine()),
+                address(new StakeEngine(address(0))),
                 abi.encodeCall(
                     StakeEngine.initialize,
                     (address(this), address(vsp), address(stakeRatePolicy))
@@ -65,7 +65,7 @@ contract EconomicInvariantsTest is Test {
 
         score = ScoreEngine(
             _proxy(
-                address(new ScoreEngine()),
+                address(new ScoreEngine(address(0))),
                 abi.encodeCall(
                     ScoreEngine.initialize,
                     (
@@ -82,7 +82,7 @@ contract EconomicInvariantsTest is Test {
 
         views = ProtocolViews(
             _proxy(
-                address(new ProtocolViews()),
+                address(new ProtocolViews(address(0))),
                 abi.encodeCall(
                     ProtocolViews.initialize,
                     (
