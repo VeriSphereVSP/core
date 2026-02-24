@@ -9,8 +9,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /// @title PostRegistry
 /// @notice Creates claims and links on-chain.
-///         Supports gasless meta-transactions via ERC-2771: _msgSender()
-///         resolves to the real user even when a relayer submits the tx.
+///         Supports gasless meta-transactions via ERC-2771.
+///         Rejects duplicate claims (case-insensitive, whitespace-normalized).
 contract PostRegistry is GovernedUpgradeable {
     enum ContentType {
         Claim,
@@ -45,6 +45,10 @@ contract PostRegistry is GovernedUpgradeable {
     IVSPToken public vspToken;
     IPostingFeePolicy public feePolicy;
 
+    /// @notice Maps normalized content hash to postId + 1.
+    ///         Default 0 means no claim exists with that hash.
+    mapping(bytes32 => uint256) private claimHashToPostIdPlusOne;
+
     event PostCreated(
         uint256 indexed postId,
         address indexed creator,
@@ -54,6 +58,7 @@ contract PostRegistry is GovernedUpgradeable {
     event FeeBurned(uint256 indexed postId, uint256 feeAmount);
 
     error InvalidClaim();
+    error DuplicateClaim(uint256 existingPostId);
     error IndependentPostDoesNotExist();
     error DependentPostDoesNotExist();
     error IndependentMustBeClaim();
@@ -85,17 +90,22 @@ contract PostRegistry is GovernedUpgradeable {
         emit LinkGraphSet(linkGraph_);
     }
 
-    // -------- Core write methods (use _msgSender()) --------
+    // -------- Core write methods --------
 
     function createClaim(
-        string calldata text
+        string calldata text_
     ) external returns (uint256 postId) {
-        if (bytes(text).length == 0) revert InvalidClaim();
+        if (bytes(text_).length == 0) revert InvalidClaim();
+
+        // Duplicate check BEFORE charging fee -- no VSP burned on revert
+        bytes32 normalizedHash = _normalizeAndHash(text_);
+        uint256 existing = claimHashToPostIdPlusOne[normalizedHash];
+        if (existing != 0) revert DuplicateClaim(existing - 1);
 
         uint256 fee = _chargeFee();
 
         uint256 claimId = claims.length;
-        claims.push(Claim({text: text}));
+        claims.push(Claim({text: text_}));
 
         postId = nextPostId++;
         posts[postId] = Post({
@@ -105,6 +115,8 @@ contract PostRegistry is GovernedUpgradeable {
             contentId: claimId,
             creationFee: fee
         });
+
+        claimHashToPostIdPlusOne[normalizedHash] = postId + 1;
 
         emit PostCreated(postId, _msgSender(), ContentType.Claim);
     }
@@ -168,7 +180,86 @@ contract PostRegistry is GovernedUpgradeable {
         return links[linkId];
     }
 
+    /// @notice Check if a claim with this text already exists on-chain.
+    /// @return existingPostId The postId, or type(uint256).max if not found.
+    function findClaim(
+        string calldata text_
+    ) external view returns (uint256 existingPostId) {
+        bytes32 h = _normalizeAndHash(text_);
+        uint256 stored = claimHashToPostIdPlusOne[h];
+        if (stored == 0) return type(uint256).max;
+        return stored - 1;
+    }
+
+    // -------- Governance: backfill existing claims --------
+
+    /// @notice Register hashes for claims created before this upgrade.
+    function backfillClaimHashes(
+        uint256[] calldata postIds
+    ) external onlyGovernance {
+        for (uint256 i = 0; i < postIds.length; i++) {
+            uint256 pid = postIds[i];
+            if (pid >= nextPostId) continue;
+
+            Post memory p = posts[pid];
+            if (p.contentType != ContentType.Claim) continue;
+
+            string memory claimText = claims[p.contentId].text;
+            bytes32 h = _normalizeBytes(bytes(claimText));
+
+            if (claimHashToPostIdPlusOne[h] == 0) {
+                claimHashToPostIdPlusOne[h] = pid + 1;
+            }
+        }
+    }
+
     // -------- Internal --------
+
+    function _normalizeAndHash(
+        string calldata text_
+    ) internal pure returns (bytes32) {
+        return _normalizeBytes(bytes(text_));
+    }
+
+    /// @notice Lowercase ASCII, collapse whitespace, trim, keccak256.
+    function _normalizeBytes(bytes memory raw) internal pure returns (bytes32) {
+        bytes memory buf = new bytes(raw.length);
+        uint256 j = 0;
+        bool lastWasSpace = true;
+
+        for (uint256 i = 0; i < raw.length; i++) {
+            bytes1 ch = raw[i];
+
+            // Treat space, tab, newline, carriage return as whitespace
+            if (ch == 0x20 || ch == 0x09 || ch == 0x0A || ch == 0x0D) {
+                if (!lastWasSpace) {
+                    buf[j++] = 0x20;
+                    lastWasSpace = true;
+                }
+                continue;
+            }
+
+            // Lowercase ASCII A-Z
+            if (ch >= 0x41 && ch <= 0x5A) {
+                ch = bytes1(uint8(ch) + 32);
+            }
+
+            buf[j++] = ch;
+            lastWasSpace = false;
+        }
+
+        // Trim trailing space
+        if (j > 0 && buf[j - 1] == 0x20) {
+            j--;
+        }
+
+        // Hash only the used portion
+        bytes memory result = new bytes(j);
+        for (uint256 i = 0; i < j; i++) {
+            result[i] = buf[i];
+        }
+        return keccak256(result);
+    }
 
     function _chargeFee() internal returns (uint256 fee) {
         fee = feePolicy.postingFeeVSP();
@@ -189,5 +280,5 @@ contract PostRegistry is GovernedUpgradeable {
         return postId < nextPostId;
     }
 
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 }

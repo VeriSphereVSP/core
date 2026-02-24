@@ -1,6 +1,12 @@
 #!/bin/bash
 # core/script/post-deploy.sh
-# Propagates addresses.json to frontend and backend after deployment
+# Propagates deployment artifacts after a forge deploy.
+#
+# Dependency graph:
+#   core → protocol  (ABIs + addresses)  → frontend consumes via @verisphere/protocol
+#   core → app       (addresses only)     → app reads from app/deployments/
+#
+# app has NO dependency on protocol. Frontend's only cross-repo dep is protocol.
 
 set -e
 
@@ -29,30 +35,26 @@ fi
 
 echo -e "${GREEN}✓ Found addresses for network: ${NETWORK}${NC}"
 
-# Copy to frontend
-echo -e "${GREEN}✓ Updating frontend addresses...${NC}"
-mkdir -p ../frontend/src/deployments
-cp "$ADDRESSES_FILE" "../frontend/src/deployments/${NETWORK}.json"
+# ── Protocol: ABIs + addresses ──────────────────────────────────
+echo -e "${GREEN}✓ Updating protocol addresses...${NC}"
+mkdir -p ../protocol/src/addresses
+cp "$ADDRESSES_FILE" "../protocol/src/addresses/${NETWORK}.json"
 
-# Copy to backend
+echo -e "${GREEN}✓ Regenerating protocol ABIs...${NC}"
+cd ../protocol
+npm run generate-abis > /dev/null 2>&1
+
+echo -e "${GREEN}✓ Building protocol...${NC}"
+npm run build > /dev/null 2>&1
+cd ../core
+
+# ── App (backend): addresses only ───────────────────────────────
 echo -e "${GREEN}✓ Updating backend addresses...${NC}"
 mkdir -p ../app/deployments
 cp "$ADDRESSES_FILE" "../app/deployments/${NETWORK}.json"
 
-# Rebuild protocol ABIs
-echo -e "${GREEN}✓ Rebuilding protocol ABIs...${NC}"
-cd ../protocol
-npm run generate-abis > /dev/null 2>&1
-npm run build > /dev/null 2>&1
-
 echo -e "${GREEN}✅ Post-deployment complete!${NC}"
 echo ""
-echo "Deployed addresses copied to:"
-echo "  - frontend/src/deployments/${NETWORK}.json"
+echo "Artifacts written to:"
+echo "  - protocol/src/addresses/${NETWORK}.json  (+ ABIs regenerated & built)"
 echo "  - app/deployments/${NETWORK}.json"
-echo ""
-echo "These files should be committed to git."
-echo ""
-echo "Next steps:"
-echo "  1. Rebuild Docker: docker compose build app"
-echo "  2. Restart: docker compose up -d app"

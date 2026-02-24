@@ -103,6 +103,27 @@ contract StakeEngine is GovernedUpgradeable {
         return (ps.sides[0].total, ps.sides[1].total);
     }
 
+    /// @notice Returns the total amount a user has staked on a given post and side.
+    /// @param user The staker's address.
+    /// @param postId The post to query.
+    /// @param side 0 = support, 1 = challenge.
+    /// @return total The sum of the user's active lot amounts on that side.
+    function getUserStake(
+        address user,
+        uint256 postId,
+        uint8 side
+    ) external view returns (uint256 total) {
+        if (side > 1) revert InvalidSide();
+        SideQueue storage q = posts[postId].sides[side];
+        uint256 len = q.lots.length;
+        for (uint256 i = 0; i < len; i++) {
+            StakeLot storage lot = q.lots[i];
+            if (lot.staker == user && lot.amount > 0) {
+                total += lot.amount;
+            }
+        }
+    }
+
     // -------- Stake / Withdraw (use _msgSender()) --------
 
     function stake(uint256 postId, uint8 side, uint256 amount) external {

@@ -30,6 +30,7 @@ cat broadcast/Deploy.s.sol/${CHAIN_ID}/addresses.json
 echo ""
 echo "Next steps:"
 echo "  1. cd ~/verisphere"
-echo "  2. docker compose build app"
-echo "  3. docker compose up -d app"
+echo "  2. docker compose build app frontend"
+echo "  3. docker compose up -d"
 echo "  4. ./test-e2e.sh"
+
