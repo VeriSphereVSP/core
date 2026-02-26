@@ -8,9 +8,7 @@ import "./interfaces/IVSPToken.sol";
 contract VSPToken is ERC20, IVSPToken {
     Authority public immutable authority;
 
-    constructor(address authority_)
-        ERC20("VeriSphere", "VSP")
-    {
+    constructor(address authority_) ERC20("VeriSphere", "VSP") {
         authority = Authority(authority_);
     }
 
@@ -28,25 +26,18 @@ contract VSPToken is ERC20, IVSPToken {
     // Mint / Burn (protocol authority)
     // ------------------------------------------------------------
 
-    function mint(address to, uint256 amount)
-        external
-        onlyMinter
-    {
+    function mint(address to, uint256 amount) external onlyMinter {
         _mint(to, amount);
     }
 
-    function burn(uint256 amount)
-        external
-        onlyBurner
-    {
+    function burn(uint256 amount) external onlyBurner {
         _burn(msg.sender, amount);
     }
 
-    function burnFrom(address from, uint256 amount)
-        external
-        onlyBurner
-    {
+    /// @notice Burns tokens from `from`, requiring ERC-20 allowance.
+    /// @dev Caller must have the burner role AND sufficient allowance from `from`.
+    function burnFrom(address from, uint256 amount) external onlyBurner {
+        _spendAllowance(from, msg.sender, amount);
         _burn(from, amount);
     }
 }
-

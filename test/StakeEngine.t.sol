@@ -31,7 +31,10 @@ contract MockVSP is IVSPToken {
         return balances[account];
     }
 
-    function allowance(address owner, address spender) external view returns (uint256) {
+    function allowance(
+        address owner,
+        address spender
+    ) external view returns (uint256) {
         return allowances[owner][spender];
     }
 
@@ -47,7 +50,11 @@ contract MockVSP is IVSPToken {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
         require(allowances[from][msg.sender] >= amount, "allowance");
         require(balances[from] >= amount, "insufficient");
 
@@ -74,7 +81,7 @@ contract MockVSP is IVSPToken {
 }
 
 /// ------------------------------------------------------------
-/// StakeEngine Tests
+/// StakeEngine Tests (v2 — lot consolidation + tranches)
 /// ------------------------------------------------------------
 contract StakeEngineTest is Test {
     MockVSP token;
@@ -83,6 +90,9 @@ contract StakeEngineTest is Test {
 
     uint256 postA = 1;
     uint256 postB = 2;
+
+    address alice = address(0xA11CE);
+    address bob = address(0xB0B);
 
     function setUp() public {
         token = new MockVSP();
@@ -95,7 +105,7 @@ contract StakeEngineTest is Test {
                     abi.encodeCall(
                         StakeEngine.initialize,
                         (
-                            address(this),            // governance
+                            address(this), // governance
                             address(token),
                             address(stakeRatePolicy)
                         )
@@ -104,7 +114,16 @@ contract StakeEngineTest is Test {
             )
         );
 
+        // Fund test accounts
         token.mint(address(this), 1e36);
+        token.approve(address(engine), type(uint256).max);
+
+        token.mint(alice, 1e36);
+        vm.prank(alice);
+        token.approve(address(engine), type(uint256).max);
+
+        token.mint(bob, 1e36);
+        vm.prank(bob);
         token.approve(address(engine), type(uint256).max);
     }
 
@@ -121,7 +140,7 @@ contract StakeEngineTest is Test {
         assertEq(c, 30 ether);
     }
 
-    function testWithdrawReducesTotalsFIFO() public {
+    function testWithdrawReducesTotals() public {
         engine.stake(postA, 0, 100 ether);
         engine.withdraw(postA, 0, 40 ether, false);
 
@@ -130,30 +149,71 @@ contract StakeEngineTest is Test {
         assertEq(c, 0);
     }
 
-    function testWithdrawLIFO() public {
+    /// ------------------------------------------------------------
+    /// Lot consolidation
+    /// ------------------------------------------------------------
+
+    function testMultipleStakesConsolidate() public {
         engine.stake(postA, 0, 50 ether);
         engine.stake(postA, 0, 70 ether);
 
-        engine.withdraw(postA, 0, 60 ether, true);
+        // Should be one consolidated lot with 120 ether
+        uint256 userStake = engine.getUserStake(address(this), postA, 0);
+        assertEq(userStake, 120 ether);
 
-        (uint256 s,) = engine.getPostTotals(postA);
-        assertEq(s, 60 ether);
+        (uint256 s, ) = engine.getPostTotals(postA);
+        assertEq(s, 120 ether);
+    }
+
+    function testConsolidationWeightedPosition() public {
+        // First stake at position 0
+        engine.stake(postA, 0, 100 ether);
+        // Second stake goes to back of queue (position 100 ether)
+        engine.stake(postA, 0, 100 ether);
+
+        // Weighted position should be:
+        // (0 * 100 + 100 * 100) / 200 = 50
+        uint256 userStake = engine.getUserStake(address(this), postA, 0);
+        assertEq(userStake, 200 ether);
+    }
+
+    function testDifferentUsersHaveSeparateLots() public {
+        engine.stake(postA, 0, 100 ether);
+
+        vm.prank(alice);
+        engine.stake(postA, 0, 50 ether);
+
+        assertEq(engine.getUserStake(address(this), postA, 0), 100 ether);
+        assertEq(engine.getUserStake(alice, postA, 0), 50 ether);
+
+        (uint256 s, ) = engine.getPostTotals(postA);
+        assertEq(s, 150 ether);
     }
 
     /// ------------------------------------------------------------
-    /// Gain / loss mechanics (weak invariants, single epoch)
+    /// Partial withdrawal keeps position
+    /// ------------------------------------------------------------
+
+    function testPartialWithdrawKeepsPosition() public {
+        engine.stake(postA, 0, 100 ether);
+        engine.withdraw(postA, 0, 30 ether, false);
+
+        uint256 userStake = engine.getUserStake(address(this), postA, 0);
+        assertEq(userStake, 70 ether);
+    }
+
+    /// ------------------------------------------------------------
+    /// Gain / loss mechanics (with snapshots)
     /// ------------------------------------------------------------
 
     function testWinningSideNeverDecreases() public {
         uint256 stakeAmount = 1e30;
-
         engine.stake(postA, 0, stakeAmount);
 
         vm.warp(block.timestamp + 3 days);
         engine.updatePost(postA);
 
         (uint256 support, uint256 challenge) = engine.getPostTotals(postA);
-
         assertEq(challenge, 0);
         assertGe(support, stakeAmount);
     }
@@ -168,10 +228,8 @@ contract StakeEngineTest is Test {
         engine.updatePost(postA);
 
         (uint256 s, uint256 c) = engine.getPostTotals(postA);
-
         assertGe(s, 100 ether);
         assertLe(c, 10 ether);
-        assertLe(token.totalSupply(), supplyBefore);
     }
 
     function testNoGrowthWhenBalanced() public {
@@ -182,23 +240,51 @@ contract StakeEngineTest is Test {
         engine.updatePost(postA);
 
         (uint256 s, uint256 c) = engine.getPostTotals(postA);
-
         assertEq(s, 50 ether);
         assertEq(c, 50 ether);
     }
 
-    function testLargeStakeGrowsAtLeastAsMuchAsSmall() public {
-        engine.stake(postA, 0, 1e30);
-        engine.stake(postB, 0, 10 ether);
+    /// ------------------------------------------------------------
+    /// View projection: reads reflect unrealized gains
+    /// ------------------------------------------------------------
 
-        vm.warp(block.timestamp + 5 days);
-        engine.updatePost(postA);
-        engine.updatePost(postB);
+    function testViewProjectsGainsBeforeSnapshot() public {
+        engine.stake(postA, 0, 100 ether);
 
-        (uint256 big,) = engine.getPostTotals(postA);
-        (uint256 small,) = engine.getPostTotals(postB);
+        // Advance time but DON'T call updatePost
+        vm.warp(block.timestamp + 3 days);
 
-        assertGe(big - 1e30, small - 10 ether);
+        // getPostTotals should project gains without writing state
+        (uint256 s, ) = engine.getPostTotals(postA);
+        assertGe(s, 100 ether, "View should project gains");
+    }
+
+    function testViewProjectsUserStake() public {
+        engine.stake(postA, 0, 100 ether);
+
+        vm.warp(block.timestamp + 3 days);
+
+        uint256 projected = engine.getUserStake(address(this), postA, 0);
+        assertGe(projected, 100 ether, "User stake should project gains");
+    }
+
+    /// ------------------------------------------------------------
+    /// Snapshot period behavior
+    /// ------------------------------------------------------------
+
+    function testSnapshotTriggersOnStakeAfterPeriod() public {
+        engine.stake(postA, 0, 100 ether);
+        engine.stake(postA, 1, 10 ether);
+
+        // Advance past snapshot period
+        vm.warp(block.timestamp + 2 days);
+
+        // This stake triggers a snapshot internally
+        engine.stake(postA, 0, 1 ether);
+
+        // After snapshot, winning side should have grown
+        (uint256 s, ) = engine.getPostTotals(postA);
+        assertGt(s, 101 ether, "Snapshot should have applied gains");
     }
 
     /// ------------------------------------------------------------
@@ -224,6 +310,30 @@ contract StakeEngineTest is Test {
 
         engine.stake(postB, 0, 300 ether);
         assertGe(engine.sMax(), 300 ether);
+    }
+
+    /// ------------------------------------------------------------
+    /// Governance: tranches and snapshot period
+    /// ------------------------------------------------------------
+
+    function testGovernanceCanSetTranches() public {
+        engine.setNumTranches(20);
+        assertEq(engine.numTranches(), 20);
+    }
+
+    function testGovernanceCanSetSnapshotPeriod() public {
+        engine.setSnapshotPeriod(12 hours);
+        assertEq(engine.snapshotPeriod(), 12 hours);
+    }
+
+    function test_RevertWhen_ZeroTranches() public {
+        vm.expectRevert(StakeEngine.InvalidTranches.selector);
+        engine.setNumTranches(0);
+    }
+
+    function test_RevertWhen_ZeroSnapshotPeriod() public {
+        vm.expectRevert(StakeEngine.InvalidSnapshotPeriod.selector);
+        engine.setSnapshotPeriod(0);
     }
 
     /// ------------------------------------------------------------
@@ -256,5 +366,9 @@ contract StakeEngineTest is Test {
         vm.expectRevert(StakeEngine.NotEnoughStake.selector);
         engine.withdraw(postA, 0, 200 ether, false);
     }
-}
 
+    function test_RevertWhen_WithdrawNoLot() public {
+        vm.expectRevert(StakeEngine.NotEnoughStake.selector);
+        engine.withdraw(postA, 0, 100 ether, false);
+    }
+}

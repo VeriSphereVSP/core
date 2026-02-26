@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import "@openzeppelin/contracts/governance/TimelockController.sol";
 
 import "../src/authority/Authority.sol";
 import "../src/VerisphereForwarder.sol";
@@ -17,13 +18,20 @@ import "../src/governance/PostingFeePolicy.sol";
 import "../src/governance/ClaimActivityPolicy.sol";
 import "../src/governance/StakeRatePolicy.sol";
 
+/// @title Deploy
+/// @notice Deploys the full VeriSphere protocol.
+///         Environment-aware: if PRODUCTION=true, deploys a TimelockController
+///         and initiates two-step ownership transfer from deployer to timelock.
+///         Otherwise, deployer EOA retains ownership for fast iteration.
 contract Deploy is Script {
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(pk);
+        bool isProduction = vm.envOr("PRODUCTION", false);
 
         vm.startBroadcast(pk);
 
+        // In dev, gov = deployer. In prod, gov = TimelockController (deployed below).
         address gov = deployer;
 
         Authority authority = new Authority(gov);
@@ -31,9 +39,32 @@ contract Deploy is Script {
         // Deploy trusted forwarder first — its address is needed by impl constructors
         VerisphereForwarder forwarder = new VerisphereForwarder();
 
-        PostingFeePolicy postingFeePolicy = new PostingFeePolicy(gov, 1e18);
-        ClaimActivityPolicy activityPolicy = new ClaimActivityPolicy(gov, 1e18);
-        StakeRatePolicy stakeRatePolicy = new StakeRatePolicy(gov, 0, 50e16);
+        // Deploy TimelockController for policy contracts (and Authority in prod)
+        address[] memory proposers = new address[](1);
+        proposers[0] = deployer;
+        address[] memory executors = new address[](1);
+        executors[0] = deployer;
+
+        TimelockController timelock = new TimelockController(
+            isProduction ? 2 days : 0, // minDelay: 2 days in prod, 0 in dev
+            proposers,
+            executors,
+            deployer // admin — can be renounced later in prod
+        );
+
+        PostingFeePolicy postingFeePolicy = new PostingFeePolicy(
+            address(timelock),
+            1e18
+        );
+        ClaimActivityPolicy activityPolicy = new ClaimActivityPolicy(
+            address(timelock),
+            1e18
+        );
+        StakeRatePolicy stakeRatePolicy = new StakeRatePolicy(
+            address(timelock),
+            0,
+            50e16
+        );
 
         VSPToken token = new VSPToken(address(authority));
 
@@ -41,7 +72,6 @@ contract Deploy is Script {
         authority.setBurner(gov, true);
 
         // Implementation contracts take forwarder in constructor (OZ 5.5 immutable pattern)
-        // initialize() uses original arg counts (no forwarder arg)
         StakeEngine stakeImpl = new StakeEngine(address(forwarder));
         ERC1967Proxy stakeProxy = new ERC1967Proxy(
             address(stakeImpl),
@@ -65,6 +95,7 @@ contract Deploy is Script {
         );
         PostRegistry registry = PostRegistry(address(registryProxy));
 
+        // PostRegistry needs burner role to burn posting fees
         authority.setBurner(address(registry), true);
 
         LinkGraph graphImpl = new LinkGraph(address(forwarder));
@@ -117,6 +148,25 @@ contract Deploy is Script {
         vm.label(address(viewsProxy), "ProtocolViews");
         vm.label(address(forwarder), "Forwarder");
 
+        // ── Production: initiate ownership transfer to timelock ──
+        if (isProduction) {
+            // Propose timelock as new Authority owner.
+            // The timelock must call authority.acceptOwner() to complete.
+            authority.proposeOwner(address(timelock));
+
+            console.log("");
+            console.log("PRODUCTION MODE: Ownership transfer initiated.");
+            console.log("TimelockController:", address(timelock));
+            console.log("Authority pending owner:", address(timelock));
+            console.log("");
+            console.log(
+                "NEXT STEP: Schedule and execute authority.acceptOwner()"
+            );
+            console.log(
+                "via the TimelockController to complete ownership transfer."
+            );
+        }
+
         vm.stopBroadcast();
 
         string memory json = string.concat(
@@ -124,6 +174,8 @@ contract Deploy is Script {
             vm.toString(address(authority)),
             '","Forwarder":"',
             vm.toString(address(forwarder)),
+            '","TimelockController":"',
+            vm.toString(address(timelock)),
             '","VSPToken":"',
             vm.toString(address(token)),
             '","PostRegistry":"',

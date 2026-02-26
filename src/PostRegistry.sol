@@ -11,6 +11,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// @notice Creates claims and links on-chain.
 ///         Supports gasless meta-transactions via ERC-2771.
 ///         Rejects duplicate claims (case-insensitive, whitespace-normalized).
+///         Burns posting fees on creation (deflationary).
 contract PostRegistry is GovernedUpgradeable {
     enum ContentType {
         Claim,
@@ -102,12 +103,14 @@ contract PostRegistry is GovernedUpgradeable {
         uint256 existing = claimHashToPostIdPlusOne[normalizedHash];
         if (existing != 0) revert DuplicateClaim(existing - 1);
 
-        uint256 fee = _chargeFee();
+        // Assign postId first so _chargeFee can emit FeeBurned with it
+        postId = nextPostId++;
+
+        uint256 fee = _chargeFee(postId);
 
         uint256 claimId = claims.length;
         claims.push(Claim({text: text_}));
 
-        postId = nextPostId++;
         posts[postId] = Post({
             creator: _msgSender(),
             timestamp: block.timestamp,
@@ -136,7 +139,9 @@ contract PostRegistry is GovernedUpgradeable {
             revert IndependentMustBeClaim();
         if (dep.contentType != ContentType.Claim) revert DependentMustBeClaim();
 
-        uint256 fee = _chargeFee();
+        postId = nextPostId++;
+
+        uint256 fee = _chargeFee(postId);
 
         uint256 linkId = links.length;
         links.push(
@@ -147,7 +152,6 @@ contract PostRegistry is GovernedUpgradeable {
             })
         );
 
-        postId = nextPostId++;
         posts[postId] = Post({
             creator: _msgSender(),
             timestamp: block.timestamp,
@@ -261,7 +265,9 @@ contract PostRegistry is GovernedUpgradeable {
         return keccak256(result);
     }
 
-    function _chargeFee() internal returns (uint256 fee) {
+    /// @notice Transfers posting fee from caller to this contract, then burns it.
+    /// @dev PostRegistry must have the burner role in Authority.
+    function _chargeFee(uint256 postId) internal returns (uint256 fee) {
         fee = feePolicy.postingFeeVSP();
         if (fee == 0) return 0;
 
@@ -272,8 +278,9 @@ contract PostRegistry is GovernedUpgradeable {
         );
         if (!ok) revert FeeTransferFailed();
 
+        // Burn the fee — deflationary. PostRegistry must hold burner role.
         vspToken.burn(fee);
-        emit FeeBurned(nextPostId, fee);
+        emit FeeBurned(postId, fee);
     }
 
     function _exists(uint256 postId) internal view returns (bool) {

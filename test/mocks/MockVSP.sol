@@ -22,7 +22,10 @@ contract MockVSP is IVSPToken {
         return balances[account];
     }
 
-    function allowance(address owner, address spender) external view returns (uint256) {
+    function allowance(
+        address owner,
+        address spender
+    ) external view returns (uint256) {
         return allowances[owner][spender];
     }
 
@@ -38,8 +41,15 @@ contract MockVSP is IVSPToken {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
-        require(allowances[from][msg.sender] >= amount, "insufficient allowance");
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool) {
+        require(
+            allowances[from][msg.sender] >= amount,
+            "insufficient allowance"
+        );
         require(balances[from] >= amount, "insufficient balance");
 
         allowances[from][msg.sender] -= amount;
@@ -54,9 +64,12 @@ contract MockVSP is IVSPToken {
         totalSupplyStored -= amount;
     }
 
+    /// @notice Mirrors VSPToken.burnFrom: requires allowance from `from`.
     function burnFrom(address from, uint256 amount) external {
-        // Enforce allowance (this is what was missing!)
-        require(allowances[from][msg.sender] >= amount, "insufficient allowance");
+        require(
+            allowances[from][msg.sender] >= amount,
+            "insufficient allowance"
+        );
         require(balances[from] >= amount, "insufficient balance");
 
         allowances[from][msg.sender] -= amount;

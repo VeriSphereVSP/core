@@ -7,12 +7,13 @@ import {Authority} from "../src/authority/Authority.sol";
 
 contract VSPTokenTest is Test {
     VSPToken token;
+    Authority auth;
     address owner = address(0xA11CE);
     address user1 = address(0xBEEF);
     address user2 = address(0xCAFE);
 
     function setUp() public {
-        Authority auth = new Authority(owner);
+        auth = new Authority(owner);
         token = new VSPToken(address(auth));
 
         assertEq(auth.owner(), owner);
@@ -45,6 +46,43 @@ contract VSPTokenTest is Test {
         token.burnFrom(user1, 300);
 
         assertEq(token.balanceOf(user1), 700);
+        // Allowance should be reduced
+        assertEq(token.allowance(user1, owner), 100);
+    }
+
+    function test_RevertWhen_BurnFromWithoutAllowance() public {
+        vm.prank(owner);
+        token.mint(user1, 1000);
+
+        // owner has burner role but no allowance from user1
+        vm.prank(owner);
+        vm.expectRevert(); // ERC20InsufficientAllowance
+        token.burnFrom(user1, 300);
+    }
+
+    function test_RevertWhen_BurnFromInsufficientAllowance() public {
+        vm.prank(owner);
+        token.mint(user1, 1000);
+
+        vm.prank(user1);
+        token.approve(owner, 100);
+
+        vm.prank(owner);
+        vm.expectRevert(); // ERC20InsufficientAllowance
+        token.burnFrom(user1, 300);
+    }
+
+    function test_RevertWhen_BurnFromNonBurner() public {
+        vm.prank(owner);
+        token.mint(user1, 1000);
+
+        vm.prank(user1);
+        token.approve(user2, 500);
+
+        // user2 has allowance but NOT burner role
+        vm.prank(user2);
+        vm.expectRevert("not burner");
+        token.burnFrom(user1, 300);
     }
 
     function test_RevertWhen_NonOwnerMints() public {
@@ -59,30 +97,50 @@ contract VSPTokenTest is Test {
         token.burn(100);
     }
 
-    function test_RevertWhen_BurnFromWithoutAllowance() public {
-        vm.startPrank(owner);
-        token.mint(user1, 1000);
-        vm.stopPrank();
+    // -------- Authority two-step ownership tests --------
 
-        vm.prank(user2);  // non-burner
-        vm.expectRevert("not burner");  // or "insufficient allowance" if you add check
-        token.burnFrom(user1, 300);
+    function testTwoStepOwnership() public {
+        vm.prank(owner);
+        auth.proposeOwner(user1);
+        assertEq(auth.pendingOwner(), user1);
+
+        // user1 accepts
+        vm.prank(user1);
+        auth.acceptOwner();
+        assertEq(auth.owner(), user1);
+        assertEq(auth.pendingOwner(), address(0));
+    }
+
+    function test_RevertWhen_NonOwnerProposes() public {
+        vm.prank(user1);
+        vm.expectRevert(Authority.NotOwner.selector);
+        auth.proposeOwner(user2);
+    }
+
+    function test_RevertWhen_WrongAddressAccepts() public {
+        vm.prank(owner);
+        auth.proposeOwner(user1);
+
+        vm.prank(user2);
+        vm.expectRevert(Authority.NotPendingOwner.selector);
+        auth.acceptOwner();
+    }
+
+    function test_RevertWhen_ProposeZeroAddress() public {
+        vm.prank(owner);
+        vm.expectRevert(Authority.ZeroAddress.selector);
+        auth.proposeOwner(address(0));
     }
 
     function testOwnerCanSetRoles() public {
-        Authority auth = Authority(address(token.authority()));
-
         vm.prank(owner);
         auth.setMinter(user2, true);
-
         assertTrue(auth.isMinter(user2));
     }
 
     function test_RevertWhen_NonOwnerSetsRoles() public {
-        Authority auth = Authority(address(token.authority()));
-
         vm.prank(user1);
-        vm.expectRevert("AUTH: not owner");
+        vm.expectRevert(Authority.NotOwner.selector);
         auth.setMinter(user2, true);
     }
 }
