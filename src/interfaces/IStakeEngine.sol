@@ -14,15 +14,15 @@ interface IStakeEngine {
     ) external;
     function updatePost(uint256 postId) external;
 
-    /// @notice Returns projected totals including unrealized epoch gains/losses.
+    /// @notice Returns projected totals (already includes unrealized gains/losses).
     function getPostTotals(
         uint256 postId
     ) external view returns (uint256 support, uint256 challenge);
 
-    /// @notice Returns a user's projected stake on a given post and side.
+    /// @notice Returns projected user stake (already includes unrealized gains/losses).
     function getUserStake(
         address user,
         uint256 postId,
         uint8 side
-    ) external view returns (uint256 total);
+    ) external view returns (uint256);
 }

@@ -3,12 +3,21 @@ pragma solidity ^0.8.20;
 
 import "./governance/GovernedUpgradeable.sol";
 
+/// @title LinkGraph
+/// @notice Directed graph of evidence links between claims.
+///         Allows cycles — the ScoreEngine's depth limit (32) prevents
+///         infinite recursion and the attenuation factor ensures convergence.
+///         Mutually contradictory claims (A challenges B, B challenges A) are
+///         a natural pattern that the graph must support.
 contract LinkGraph is GovernedUpgradeable {
     error RegistryAlreadySet();
     error NotRegistry();
     error SelfLoop();
-    error CycleDetected();
-    error TraversalLimitExceeded();
+    error DuplicateEdge(
+        uint256 fromClaimPostId,
+        uint256 toClaimPostId,
+        bool isChallenge
+    );
 
     event RegistrySet(address indexed registry);
     event EdgeAdded(
@@ -35,10 +44,13 @@ contract LinkGraph is GovernedUpgradeable {
     mapping(uint256 => Edge[]) private outgoing;
     mapping(uint256 => IncomingEdge[]) private incoming;
 
-    mapping(uint256 => uint256) private visited;
-    uint256 private visitToken;
+    // ── Legacy storage slots (preserved for upgrade compatibility) ──
+    mapping(uint256 => uint256) private _unused_visited;
+    uint256 private _unused_visitToken;
+    uint256 public constant MAX_VISITS = 4096; // kept for ABI compat
 
-    uint256 public constant MAX_VISITS = 4096;
+    // Duplicate edge detection: keccak256(from, to, isChallenge) => true
+    mapping(bytes32 => bool) private edgeExists;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
@@ -67,7 +79,14 @@ contract LinkGraph is GovernedUpgradeable {
         bool isChallenge
     ) external onlyRegistry {
         if (fromClaimPostId == toClaimPostId) revert SelfLoop();
-        if (_pathExists(toClaimPostId, fromClaimPostId)) revert CycleDetected();
+
+        bytes32 edgeKey = keccak256(
+            abi.encodePacked(fromClaimPostId, toClaimPostId, isChallenge)
+        );
+        if (edgeExists[edgeKey])
+            revert DuplicateEdge(fromClaimPostId, toClaimPostId, isChallenge);
+
+        edgeExists[edgeKey] = true;
 
         outgoing[fromClaimPostId].push(
             Edge({
@@ -100,38 +119,16 @@ contract LinkGraph is GovernedUpgradeable {
         return incoming[claimPostId];
     }
 
-    function _pathExists(
-        uint256 start,
-        uint256 target
-    ) internal returns (bool) {
-        visitToken++;
-        uint256 token = visitToken;
-
-        uint256[] memory stack = new uint256[](MAX_VISITS);
-        uint256 sp;
-        uint256 visitedCount;
-
-        visited[start] = token;
-        stack[sp++] = start;
-        visitedCount++;
-
-        while (sp > 0) {
-            uint256 node = stack[--sp];
-            if (node == target) return true;
-
-            Edge[] storage nbrs = outgoing[node];
-            for (uint256 i = 0; i < nbrs.length; i++) {
-                uint256 nxt = nbrs[i].toClaimPostId;
-                if (visited[nxt] == token) continue;
-                if (visitedCount >= MAX_VISITS) revert TraversalLimitExceeded();
-
-                visited[nxt] = token;
-                stack[sp++] = nxt;
-                visitedCount++;
-            }
-        }
-
-        return false;
+    /// @notice Check if a specific edge already exists.
+    function hasEdge(
+        uint256 fromClaimPostId,
+        uint256 toClaimPostId,
+        bool isChallenge
+    ) external view returns (bool) {
+        bytes32 edgeKey = keccak256(
+            abi.encodePacked(fromClaimPostId, toClaimPostId, isChallenge)
+        );
+        return edgeExists[edgeKey];
     }
 
     function getOutgoingClaims(
@@ -145,5 +142,5 @@ contract LinkGraph is GovernedUpgradeable {
         return tos;
     }
 
-    uint256[50] private __gap;
+    uint256[49] private __gap;
 }

@@ -11,7 +11,16 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /// @notice Creates claims and links on-chain.
 ///         Supports gasless meta-transactions via ERC-2771.
 ///         Rejects duplicate claims (case-insensitive, whitespace-normalized).
+///         Rejects duplicate links (same from, to, and challenge type).
 ///         Burns posting fees on creation (deflationary).
+///
+/// @dev    Post IDs start at 1 (not 0) so that downstream consumers can safely
+///         use 0 / falsy checks as "no post" sentinels in JavaScript, Solidity
+///         mappings, and database columns.
+///
+///         Link direction: from → to means "from provides evidence for/against to".
+///         Example: createLink(from=S, to=F, isChallenge=true) means
+///         "claim S challenges claim F" — S is outgoing, F receives incoming.
 contract PostRegistry is GovernedUpgradeable {
     enum ContentType {
         Claim,
@@ -31,8 +40,8 @@ contract PostRegistry is GovernedUpgradeable {
     }
 
     struct Link {
-        uint256 independentPostId;
-        uint256 dependentPostId;
+        uint256 fromPostId;
+        uint256 toPostId;
         bool isChallenge;
     }
 
@@ -60,10 +69,11 @@ contract PostRegistry is GovernedUpgradeable {
 
     error InvalidClaim();
     error DuplicateClaim(uint256 existingPostId);
-    error IndependentPostDoesNotExist();
-    error DependentPostDoesNotExist();
-    error IndependentMustBeClaim();
-    error DependentMustBeClaim();
+    error DuplicateLink(uint256 fromPostId, uint256 toPostId, bool isChallenge);
+    error FromPostDoesNotExist();
+    error ToPostDoesNotExist();
+    error FromPostMustBeClaim();
+    error ToPostMustBeClaim();
     error LinkGraphAlreadySet();
     error LinkGraphZeroAddress();
     error LinkGraphNotSet();
@@ -82,6 +92,7 @@ contract PostRegistry is GovernedUpgradeable {
         __GovernedUpgradeable_init(governance_);
         vspToken = IVSPToken(vspToken_);
         feePolicy = IPostingFeePolicy(feePolicy_);
+        nextPostId = 1;
     }
 
     function setLinkGraph(address linkGraph_) external onlyGovernance {
@@ -103,7 +114,6 @@ contract PostRegistry is GovernedUpgradeable {
         uint256 existing = claimHashToPostIdPlusOne[normalizedHash];
         if (existing != 0) revert DuplicateClaim(existing - 1);
 
-        // Assign postId first so _chargeFee can emit FeeBurned with it
         postId = nextPostId++;
 
         uint256 fee = _chargeFee(postId);
@@ -124,20 +134,28 @@ contract PostRegistry is GovernedUpgradeable {
         emit PostCreated(postId, _msgSender(), ContentType.Claim);
     }
 
+    /// @notice Create a link between two claims.
+    /// @param fromPostId The claim providing evidence (outgoing end).
+    /// @param toPostId   The claim receiving evidence (incoming end).
+    /// @param isChallenge True if fromPostId challenges toPostId, false if it supports.
     function createLink(
-        uint256 independentPostId,
-        uint256 dependentPostId,
+        uint256 fromPostId,
+        uint256 toPostId,
         bool isChallenge
     ) external returns (uint256 postId) {
         if (address(linkGraph) == address(0)) revert LinkGraphNotSet();
-        if (!_exists(independentPostId)) revert IndependentPostDoesNotExist();
-        if (!_exists(dependentPostId)) revert DependentPostDoesNotExist();
+        if (!_exists(fromPostId)) revert FromPostDoesNotExist();
+        if (!_exists(toPostId)) revert ToPostDoesNotExist();
 
-        Post memory indep = posts[independentPostId];
-        Post memory dep = posts[dependentPostId];
-        if (indep.contentType != ContentType.Claim)
-            revert IndependentMustBeClaim();
-        if (dep.contentType != ContentType.Claim) revert DependentMustBeClaim();
+        Post memory fromPost = posts[fromPostId];
+        Post memory toPost = posts[toPostId];
+        if (fromPost.contentType != ContentType.Claim)
+            revert FromPostMustBeClaim();
+        if (toPost.contentType != ContentType.Claim) revert ToPostMustBeClaim();
+
+        // Duplicate link check BEFORE charging fee -- no VSP burned on revert
+        if (linkGraph.hasEdge(fromPostId, toPostId, isChallenge))
+            revert DuplicateLink(fromPostId, toPostId, isChallenge);
 
         postId = nextPostId++;
 
@@ -146,8 +164,8 @@ contract PostRegistry is GovernedUpgradeable {
         uint256 linkId = links.length;
         links.push(
             Link({
-                independentPostId: independentPostId,
-                dependentPostId: dependentPostId,
+                fromPostId: fromPostId,
+                toPostId: toPostId,
                 isChallenge: isChallenge
             })
         );
@@ -160,12 +178,7 @@ contract PostRegistry is GovernedUpgradeable {
             creationFee: fee
         });
 
-        linkGraph.addEdge(
-            independentPostId,
-            dependentPostId,
-            postId,
-            isChallenge
-        );
+        linkGraph.addEdge(fromPostId, toPostId, postId, isChallenge);
 
         emit PostCreated(postId, _msgSender(), ContentType.Link);
     }
@@ -197,7 +210,6 @@ contract PostRegistry is GovernedUpgradeable {
 
     // -------- Governance: backfill existing claims --------
 
-    /// @notice Register hashes for claims created before this upgrade.
     function backfillClaimHashes(
         uint256[] calldata postIds
     ) external onlyGovernance {
@@ -225,7 +237,6 @@ contract PostRegistry is GovernedUpgradeable {
         return _normalizeBytes(bytes(text_));
     }
 
-    /// @notice Lowercase ASCII, collapse whitespace, trim, keccak256.
     function _normalizeBytes(bytes memory raw) internal pure returns (bytes32) {
         bytes memory buf = new bytes(raw.length);
         uint256 j = 0;
@@ -234,7 +245,6 @@ contract PostRegistry is GovernedUpgradeable {
         for (uint256 i = 0; i < raw.length; i++) {
             bytes1 ch = raw[i];
 
-            // Treat space, tab, newline, carriage return as whitespace
             if (ch == 0x20 || ch == 0x09 || ch == 0x0A || ch == 0x0D) {
                 if (!lastWasSpace) {
                     buf[j++] = 0x20;
@@ -243,7 +253,6 @@ contract PostRegistry is GovernedUpgradeable {
                 continue;
             }
 
-            // Lowercase ASCII A-Z
             if (ch >= 0x41 && ch <= 0x5A) {
                 ch = bytes1(uint8(ch) + 32);
             }
@@ -252,12 +261,10 @@ contract PostRegistry is GovernedUpgradeable {
             lastWasSpace = false;
         }
 
-        // Trim trailing space
         if (j > 0 && buf[j - 1] == 0x20) {
             j--;
         }
 
-        // Hash only the used portion
         bytes memory result = new bytes(j);
         for (uint256 i = 0; i < j; i++) {
             result[i] = buf[i];
@@ -265,8 +272,6 @@ contract PostRegistry is GovernedUpgradeable {
         return keccak256(result);
     }
 
-    /// @notice Transfers posting fee from caller to this contract, then burns it.
-    /// @dev PostRegistry must have the burner role in Authority.
     function _chargeFee(uint256 postId) internal returns (uint256 fee) {
         fee = feePolicy.postingFeeVSP();
         if (fee == 0) return 0;
@@ -278,7 +283,6 @@ contract PostRegistry is GovernedUpgradeable {
         );
         if (!ok) revert FeeTransferFailed();
 
-        // Burn the fee — deflationary. PostRegistry must hold burner role.
         vspToken.burn(fee);
         emit FeeBurned(postId, fee);
     }

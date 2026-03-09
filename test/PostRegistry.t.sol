@@ -125,8 +125,8 @@ contract PostRegistryTest is Test {
         assertEq(uint8(lp.contentType), uint8(PostRegistry.ContentType.Link));
 
         PostRegistry.Link memory l = registry.getLink(lp.contentId);
-        assertEq(l.independentPostId, a);
-        assertEq(l.dependentPostId, b);
+        assertEq(l.fromPostId, a);
+        assertEq(l.toPostId, b);
         assertFalse(l.isChallenge);
     }
 
@@ -144,14 +144,14 @@ contract PostRegistryTest is Test {
     function test_RevertWhen_IndependentClaimDoesNotExist() public {
         uint256 b = registry.createClaim("B");
 
-        vm.expectRevert(PostRegistry.IndependentPostDoesNotExist.selector);
+        vm.expectRevert(PostRegistry.FromPostDoesNotExist.selector);
         registry.createLink(9999, b, false);
     }
 
     function test_RevertWhen_DependentClaimDoesNotExist() public {
         uint256 a = registry.createClaim("A");
 
-        vm.expectRevert(PostRegistry.DependentPostDoesNotExist.selector);
+        vm.expectRevert(PostRegistry.ToPostDoesNotExist.selector);
         registry.createLink(a, 9999, false);
     }
 

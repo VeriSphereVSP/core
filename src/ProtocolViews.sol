@@ -102,7 +102,7 @@ contract ProtocolViews is GovernedUpgradeable {
         require(p.contentType == PostRegistry.ContentType.Link, "not link");
 
         PostRegistry.Link memory l = registry.getLink(p.contentId);
-        return (l.independentPostId, l.dependentPostId, l.isChallenge);
+        return (l.fromPostId, l.toPostId, l.isChallenge);
     }
 
     uint256[50] private __gap;
