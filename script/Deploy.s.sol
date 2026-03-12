@@ -66,7 +66,12 @@ contract Deploy is Script {
             50e16
         );
 
-        VSPToken token = new VSPToken(address(authority));
+        VSPToken tokenImpl = new VSPToken();
+        ERC1967Proxy tokenProxy = new ERC1967Proxy(
+            address(tokenImpl),
+            abi.encodeCall(VSPToken.initialize, (address(authority)))
+        );
+        VSPToken token = VSPToken(address(tokenProxy));
 
         authority.setMinter(gov, true);
         authority.setBurner(gov, true);

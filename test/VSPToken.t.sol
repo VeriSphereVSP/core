@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {VSPToken} from "../src/VSPToken.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Authority} from "../src/authority/Authority.sol";
 
 contract VSPTokenTest is Test {
@@ -14,7 +15,12 @@ contract VSPTokenTest is Test {
 
     function setUp() public {
         auth = new Authority(owner);
-        token = new VSPToken(address(auth));
+        VSPToken tokenImpl = new VSPToken();
+        ERC1967Proxy tokenProxy = new ERC1967Proxy(
+            address(tokenImpl),
+            abi.encodeCall(VSPToken.initialize, (address(auth)))
+        );
+        token = VSPToken(address(tokenProxy));
 
         assertEq(auth.owner(), owner);
         assertTrue(auth.isMinter(owner));

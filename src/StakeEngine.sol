@@ -206,6 +206,61 @@ contract StakeEngine is GovernedUpgradeable {
         return _projectLotValue(ps, lot, currentEpoch);
     }
 
+
+    /// @notice Returns full lot info for a user's position on a post side.
+    /// @return amount Current stake amount (projected)
+    /// @return weightedPosition Stake-weighted queue position
+    /// @return entryEpoch Epoch when user first staked
+    /// @return sideTotal Total stake on this side
+    /// @return tranche Which positional tranche (0=earliest/best)
+    /// @return positionWeight Rate multiplier for this tranche (RAY-scaled)
+    function getUserLotInfo(
+        address user,
+        uint256 postId,
+        uint8 side
+    ) external view returns (
+        uint256 amount,
+        uint256 weightedPosition,
+        uint256 entryEpoch,
+        uint256 sideTotal,
+        uint256 tranche,
+        uint256 positionWeight
+    ) {
+        if (side > 1) revert InvalidSide();
+
+        PostState storage ps = posts[postId];
+        uint256 idx = _getLotIndex(ps, user, side);
+        if (idx == 0) return (0, 0, 0, 0, 0, 0);
+
+        StakeLot storage lot = ps.sides[side].lots[idx - 1];
+        if (lot.amount == 0) return (0, 0, 0, 0, 0, 0);
+
+        uint256 currentEpoch = _currentEpoch();
+        uint256 projectedAmount = lot.amount;
+        if (ps.lastSnapshotEpoch > 0 && currentEpoch > ps.lastSnapshotEpoch) {
+            projectedAmount = _projectLotValue(ps, lot, currentEpoch);
+        }
+
+        sideTotal = ps.sides[side].total;
+        uint256 nT = numTranches;
+
+        if (sideTotal > 0) {
+            tranche = (lot.weightedPosition * nT) / sideTotal;
+            if (tranche >= nT) tranche = nT - 1;
+        }
+
+        positionWeight = nT > 0 ? ((nT - tranche) * RAY) / nT : RAY;
+
+        return (
+            projectedAmount,
+            lot.weightedPosition,
+            lot.entryEpoch,
+            sideTotal,
+            tranche,
+            positionWeight
+        );
+    }
+
     // ------------------------------------------------------------
     // Stake (state-changing)
     // ------------------------------------------------------------
