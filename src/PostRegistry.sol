@@ -68,6 +68,9 @@ contract PostRegistry is GovernedUpgradeable {
     event FeeBurned(uint256 indexed postId, uint256 feeAmount);
 
     error InvalidClaim();
+    error ClaimTooLong(uint256 length, uint256 max);
+
+    uint256 public constant MAX_CLAIM_LENGTH = 500;
     error DuplicateClaim(uint256 existingPostId);
     error DuplicateLink(uint256 fromPostId, uint256 toPostId, bool isChallenge);
     error FromPostDoesNotExist();
@@ -108,6 +111,7 @@ contract PostRegistry is GovernedUpgradeable {
         string calldata text_
     ) external returns (uint256 postId) {
         if (bytes(text_).length == 0) revert InvalidClaim();
+        if (bytes(text_).length > MAX_CLAIM_LENGTH) revert ClaimTooLong(bytes(text_).length, MAX_CLAIM_LENGTH);
 
         // Duplicate check BEFORE charging fee -- no VSP burned on revert
         bytes32 normalizedHash = _normalizeAndHash(text_);

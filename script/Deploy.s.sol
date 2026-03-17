@@ -63,7 +63,7 @@ contract Deploy is Script {
         StakeRatePolicy stakeRatePolicy = new StakeRatePolicy(
             address(timelock),
             0,
-            50e16
+            1e18
         );
 
         VSPToken tokenImpl = new VSPToken();

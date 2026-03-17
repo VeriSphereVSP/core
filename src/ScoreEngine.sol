@@ -14,11 +14,14 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///
 /// Key rules:
 ///   1. Only credible parents contribute: parentVS must be > 0.
-///      A discredited claim (VS ≤ 0) has no influence through its outgoing links.
-///   2. Contributions are stake-weighted: the parent's economic mass (VS × totalStake)
-///      flows through links, not just a percentage.
-///   3. The child's effective VS is computed from the combined pool of direct stakes
-///      plus incoming contributions.
+///   2. Contributions are stake-weighted: parent economic mass flows through links.
+///   3. Effective VS = (directSupport + positiveContribs - directChallenge - negativeContribs) / pool.
+///   4. A claim is active if direct stakes OR abs(incoming contributions) >= posting fee.
+///   5. Cycle elimination: when computing VS(X), if a chain of links leads back to X,
+///      X's contribution is zero. X cannot influence its own VS through any path.
+///      The rest of the chain still applies — only the cycled post is removed.
+///      Example: computing VS(F), chain F→A→S→F: F's contribution to S is 0,
+///      but A still receives S's contribution (computed without F's influence).
 contract ScoreEngine is GovernedUpgradeable {
     using SafeCast for uint256;
 
@@ -52,23 +55,13 @@ contract ScoreEngine is GovernedUpgradeable {
         activityPolicy = IClaimActivityPolicy(activityPolicy_);
     }
 
-    /// @notice Base Verity Score from direct stakes only.
-    ///
-    /// Formula:
-    ///   support > challenge:  VS = +(support / total) × RAY
-    ///   challenge > support:  VS = −(challenge / total) × RAY
-    ///   equal or zero:        VS = 0
     function baseVSRay(uint256 postId) public view returns (int256) {
         (uint256 A, uint256 D) = stake.getPostTotals(postId);
         uint256 T = A + D;
         if (T == 0) return 0;
-        if (A > D) {
-            return int256((A * uint256(RAY)) / T);
-        } else if (D > A) {
-            return -int256((D * uint256(RAY)) / T);
-        } else {
-            return 0;
-        }
+        if (A > D) return int256((A * uint256(RAY)) / T);
+        if (D > A) return -int256((D * uint256(RAY)) / T);
+        return 0;
     }
 
     function effectiveVSRay(uint256 postId) external view returns (int256) {
@@ -76,19 +69,6 @@ contract ScoreEngine is GovernedUpgradeable {
         return _effectiveVSRay(postId, computing, 0);
     }
 
-    /// @notice Effective VS including stake-weighted evidence link contributions.
-    ///
-    /// For each incoming link to this claim:
-    ///   1. Compute parent's effective VS (recursive). Skip if parentVS ≤ 0.
-    ///   2. parentMass = parentVS × parentTotalStake / RAY  (token units, always positive)
-    ///   3. linkShare = linkStake / sumOutgoingLinkStake     (ratio, unitless)
-    ///   4. contribution = parentMass × linkShare × linkVS / RAY
-    ///   5. If isChallenge: contribution = -contribution
-    ///
-    /// Then:
-    ///   totalSupport = directSupport + sum(positive contributions)
-    ///   totalChallenge = directChallenge + abs(sum(negative contributions))
-    ///   effectiveVS = (totalSupport - totalChallenge) / (totalSupport + totalChallenge) × RAY
     function _effectiveVSRay(
         uint256 postId,
         uint256[] memory computing,
@@ -96,85 +76,35 @@ contract ScoreEngine is GovernedUpgradeable {
     ) internal view returns (int256) {
         if (depth > MAX_DEPTH) return 0;
 
-        (uint256 directSupport, uint256 directChallenge) = stake.getPostTotals(
-            postId
-        );
-        uint256 directTotal = directSupport + directChallenge;
-        if (!activityPolicy.isActive(directTotal)) return 0;
-
-        // Cycle detection
+        // Cycle detection: if this post is already being computed upstream,
+        // return 0. This ensures a post cannot influence its own VS through
+        // any chain of links. The parent that references this cycled post
+        // will see parentVS=0, which the credibility gate blocks, so the
+        // cycled edge contributes nothing. Other edges of the parent still apply.
         for (uint256 i = 0; i < depth; i++) {
-            if (computing[i] == postId) {
-                return baseVSRay(postId);
-            }
+            if (computing[i] == postId) return 0;
         }
         computing[depth] = postId;
 
-        // Accumulate incoming link contributions
-        int256 netContribution = 0;
+        (uint256 directSupport, uint256 directChallenge) = stake.getPostTotals(
+            postId
+        );
+        bool directlyActive = activityPolicy.isActive(
+            directSupport + directChallenge
+        );
 
-        LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(postId);
-        uint256 fee = feePolicy.postingFeeVSP();
+        // Compute all incoming link contributions
+        (
+            int256 netContribution,
+            uint256 absContribution
+        ) = _sumIncomingContributions(postId, computing, depth);
 
-        for (uint256 i = 0; i < inc.length; i++) {
-            LinkGraph.IncomingEdge memory e = inc[i];
-
-            uint256 parentTotal = _totalStake(e.fromClaimPostId);
-            if (!activityPolicy.isActive(parentTotal)) continue;
-
-            uint256 linkStake = _totalStake(e.linkPostId);
-            if (!activityPolicy.isActive(linkStake)) continue;
-
-            // Get parent's effective VS (recursive)
-            int256 parentVS;
-            bool isCycle = false;
-            for (uint256 j = 0; j < depth; j++) {
-                if (computing[j] == e.fromClaimPostId) {
-                    isCycle = true;
-                    break;
-                }
-            }
-            if (isCycle) {
-                parentVS = baseVSRay(e.fromClaimPostId);
-            } else {
-                parentVS = _effectiveVSRay(
-                    e.fromClaimPostId,
-                    computing,
-                    depth + 1
-                );
-            }
-
-            // RULE: Only credible parents contribute.
-            // A discredited claim (VS ≤ 0) is inert — its outgoing links
-            // have no effect until the community rehabilitates it with
-            // direct support stakes.
-            if (parentVS <= 0) continue;
-
-            // Parent economic mass = parentVS × parentTotalStake / RAY
-            // parentVS is in [0, RAY], parentTotal is in wei
-            // Result is in wei (token units), always positive
-            int256 parentMass = (parentVS * parentTotal.toInt256()) / RAY;
-
-            // Distribute across outgoing links proportionally
-            uint256 sumOutgoing = _sumOutgoingLinkStake(e.fromClaimPostId, fee);
-            if (sumOutgoing == 0) continue;
-
-            int256 contrib = (parentMass * linkStake.toInt256()) /
-                sumOutgoing.toInt256();
-
-            // Apply the link's own VS (credibility of the evidence relationship)
-            int256 linkVS = baseVSRay(e.linkPostId);
-            if (linkVS <= 0) continue; // Discredited links contribute nothing
-
-            contrib = (contrib * linkVS) / RAY;
-
-            // Challenge links flip the sign
-            if (e.isChallenge) contrib = -contrib;
-
-            netContribution += contrib;
+        // Activity: direct stakes OR incoming contributions >= posting fee
+        if (!directlyActive && absContribution < feePolicy.postingFeeVSP()) {
+            return 0;
         }
 
-        // Compute effective VS from direct stakes + contributions
+        // Combine direct stakes with contributions
         int256 totalSupport = directSupport.toInt256();
         int256 totalChallenge = directChallenge.toInt256();
 
@@ -187,8 +117,75 @@ contract ScoreEngine is GovernedUpgradeable {
         int256 pool = totalSupport + totalChallenge;
         if (pool == 0) return 0;
 
-        int256 vs = ((totalSupport - totalChallenge) * RAY) / pool;
-        return _clampRay(vs);
+        return _clampRay(((totalSupport - totalChallenge) * RAY) / pool);
+    }
+
+    /// @dev Computes the sum of all incoming link contributions for a post.
+    /// Returns (netContribution, absContribution).
+    function _sumIncomingContributions(
+        uint256 postId,
+        uint256[] memory computing,
+        uint256 depth
+    ) internal view returns (int256 net, uint256 abs_) {
+        LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(postId);
+        uint256 fee = feePolicy.postingFeeVSP();
+
+        for (uint256 i = 0; i < inc.length; i++) {
+            int256 contrib = _computeEdgeContribution(
+                inc[i],
+                computing,
+                depth,
+                fee
+            );
+            if (contrib != 0) {
+                net += contrib;
+                abs_ += _abs(contrib);
+            }
+        }
+    }
+
+    /// @dev Computes the contribution of a single incoming edge.
+    function _computeEdgeContribution(
+        LinkGraph.IncomingEdge memory e,
+        uint256[] memory computing,
+        uint256 depth,
+        uint256 fee
+    ) internal view returns (int256) {
+        uint256 parentTotal = _totalStake(e.fromClaimPostId);
+        if (!activityPolicy.isActive(parentTotal)) return 0;
+
+        uint256 linkStake = _totalStake(e.linkPostId);
+        if (!activityPolicy.isActive(linkStake)) return 0;
+
+        // Parent VS (recursive, with cycle detection).
+        // If the parent is on the computing stack, _effectiveVSRay will
+        // return 0, the credibility gate below blocks it, and this edge
+        // contributes nothing. The parent's OTHER incoming edges still
+        // compute normally because only the cycled post returns 0.
+        int256 parentVS = _effectiveVSRay(
+            e.fromClaimPostId,
+            computing,
+            depth + 1
+        );
+        if (parentVS <= 0) return 0;
+
+        // Link VS
+        int256 linkVS = baseVSRay(e.linkPostId);
+        if (linkVS <= 0) return 0;
+
+        // Parent mass distributed to this link
+        int256 parentMass = (parentVS * parentTotal.toInt256()) / RAY;
+        uint256 sumOutgoing = _sumOutgoingLinkStake(e.fromClaimPostId, fee);
+        if (sumOutgoing == 0) return 0;
+
+        int256 contrib = (parentMass * linkStake.toInt256()) /
+            sumOutgoing.toInt256();
+        contrib = (contrib * linkVS) / RAY;
+
+        // Challenge links flip the sign
+        if (e.isChallenge) contrib = -contrib;
+
+        return contrib;
     }
 
     function _totalStake(uint256 postId) internal view returns (uint256) {
@@ -211,6 +208,10 @@ contract ScoreEngine is GovernedUpgradeable {
         if (x > RAY) return RAY;
         if (x < -RAY) return -RAY;
         return x;
+    }
+
+    function _abs(int256 x) internal pure returns (uint256) {
+        return x >= 0 ? uint256(x) : uint256(-x);
     }
 
     uint256[50] private __gap;
