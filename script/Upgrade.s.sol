@@ -5,7 +5,6 @@ import "forge-std/Script.sol";
 import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
-import "../src/VerisphereForwarder.sol";
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
@@ -40,7 +39,9 @@ contract Upgrade is Script {
         string memory jsonFile = vm.readFile(
             "broadcast/Deploy.s.sol/43113/addresses.json"
         );
-        address forwarderAddr = vm.parseJsonAddress(jsonFile, ".Forwarder");
+        // Forwarder is deployed separately (see app/contracts/).
+        // deploy.sh always passes FORWARDER_ADDRESS; fall back to JSON for manual runs.
+        address forwarderAddr = vm.envOr("FORWARDER_ADDRESS", _tryParseForwarder(jsonFile));
         address authorityAddr = vm.parseJsonAddress(jsonFile, ".Authority");
         address vspTokenAddr = vm.parseJsonAddress(jsonFile, ".VSPToken");
         address postRegistryProxy = vm.parseJsonAddress(
@@ -61,21 +62,8 @@ contract Upgrade is Script {
             ".ProtocolViews"
         );
 
-        // TimelockController may not exist in older deployments
-        address timelockAddr = address(0);
-        try vm.parseJsonAddress(jsonFile, ".TimelockController") returns (
-            address t
-        ) {
-            timelockAddr = t;
-        } catch {}
-        // StakeRatePolicy address — needed if deploying fresh StakeEngine
-        // Read from the existing StakeEngine proxy
-        address ratePolicyAddr;
-        if (freshStakeEngine) {
-            ratePolicyAddr = address(
-                StakeEngine(stakeEngineProxy).ratePolicy()
-            );
-        }
+
+
 
         console.log("=== Upgrade Configuration ===");
         console.log("Forwarder:", forwarderAddr);
@@ -85,9 +73,8 @@ contract Upgrade is Script {
         console.log("StakeEngine proxy:", stakeEngineProxy);
         console.log("ScoreEngine proxy:", scoreEngineProxy);
         console.log("ProtocolViews proxy:", protocolViewsProxy);
-        if (timelockAddr != address(0)) {
-            console.log("TimelockController:", timelockAddr);
-        }
+        { address _tl = _tryParseTimelock(jsonFile);
+          if (_tl != address(0)) console.log("TimelockController:", _tl); }
         console.log("FRESH_STAKE_ENGINE:", freshStakeEngine);
         console.log("");
 
@@ -129,12 +116,13 @@ contract Upgrade is Script {
             );
 
             // Deploy new proxy + implementation
+            address _rp = address(StakeEngine(stakeEngineProxy).ratePolicy());
             StakeEngine newStakeImpl = new StakeEngine(forwarderAddr);
             ERC1967Proxy newStakeProxy = new ERC1967Proxy(
                 address(newStakeImpl),
                 abi.encodeCall(
                     StakeEngine.initialize,
-                    (deployer, vspTokenAddr, ratePolicyAddr)
+                    (deployer, vspTokenAddr, _rp)
                 )
             );
             finalStakeEngineAddr = address(newStakeProxy);
@@ -190,12 +178,11 @@ contract Upgrade is Script {
             string memory updatedJson = string.concat(
                 '{"Authority":"',
                 vm.toString(authorityAddr),
-                '","Forwarder":"',
-                vm.toString(forwarderAddr),
-                timelockAddr != address(0)
+
+                _tryParseTimelock(jsonFile) != address(0)
                     ? string.concat(
                         '","TimelockController":"',
-                        vm.toString(timelockAddr)
+                        vm.toString(_tryParseTimelock(jsonFile))
                     )
                     : "",
                 '","VSPToken":"',
@@ -243,4 +230,22 @@ contract Upgrade is Script {
             console.log("All proxies upgraded. Addresses unchanged.");
         }
     }
+
+    /// @dev Try to parse Forwarder from JSON. Returns address(0) if not found.
+    function _tryParseTimelock(string memory json) internal view returns (address) {
+        try vm.parseJsonAddress(json, ".TimelockController") returns (address t) {
+            return t;
+        } catch {
+            return address(0);
+        }
+    }
+
+    function _tryParseForwarder(string memory json) internal view returns (address) {
+        try vm.parseJsonAddress(json, ".Forwarder") returns (address f) {
+            return f;
+        } catch {
+            return address(0);
+        }
+    }
+
 }

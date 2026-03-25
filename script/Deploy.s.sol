@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/governance/TimelockController.sol";
 
 import "../src/authority/Authority.sol";
-import "../src/VerisphereForwarder.sol";
 import "../src/VSPToken.sol";
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
@@ -36,8 +35,10 @@ contract Deploy is Script {
 
         Authority authority = new Authority(gov);
 
-        // Deploy trusted forwarder first — its address is needed by impl constructors
-        VerisphereForwarder forwarder = new VerisphereForwarder();
+        // Forwarder is deployed separately (see app/contracts/VerisphereForwarder.sol).
+        // Pass its address via FORWARDER_ADDRESS env var.
+        // Use address(0) if no forwarder is needed (direct wallet interaction only).
+        address forwarder = vm.envOr("FORWARDER_ADDRESS", address(0));
 
         // Deploy TimelockController for policy contracts (and Authority in prod)
         address[] memory proposers = new address[](1);
@@ -77,7 +78,7 @@ contract Deploy is Script {
         authority.setBurner(gov, true);
 
         // Implementation contracts take forwarder in constructor (OZ 5.5 immutable pattern)
-        StakeEngine stakeImpl = new StakeEngine(address(forwarder));
+        StakeEngine stakeImpl = new StakeEngine(forwarder);
         ERC1967Proxy stakeProxy = new ERC1967Proxy(
             address(stakeImpl),
             abi.encodeCall(
@@ -90,7 +91,7 @@ contract Deploy is Script {
         authority.setMinter(address(stake), true);
         authority.setBurner(address(stake), true);
 
-        PostRegistry registryImpl = new PostRegistry(address(forwarder));
+        PostRegistry registryImpl = new PostRegistry(forwarder);
         ERC1967Proxy registryProxy = new ERC1967Proxy(
             address(registryImpl),
             abi.encodeCall(
@@ -103,7 +104,7 @@ contract Deploy is Script {
         // PostRegistry needs burner role to burn posting fees
         authority.setBurner(address(registry), true);
 
-        LinkGraph graphImpl = new LinkGraph(address(forwarder));
+        LinkGraph graphImpl = new LinkGraph(forwarder);
         ERC1967Proxy graphProxy = new ERC1967Proxy(
             address(graphImpl),
             abi.encodeCall(LinkGraph.initialize, (gov))
@@ -113,7 +114,7 @@ contract Deploy is Script {
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
 
-        ScoreEngine scoreImpl = new ScoreEngine(address(forwarder));
+        ScoreEngine scoreImpl = new ScoreEngine(forwarder);
         ERC1967Proxy scoreProxy = new ERC1967Proxy(
             address(scoreImpl),
             abi.encodeCall(
@@ -130,7 +131,7 @@ contract Deploy is Script {
         );
         ScoreEngine score = ScoreEngine(address(scoreProxy));
 
-        ProtocolViews viewsImpl = new ProtocolViews(address(forwarder));
+        ProtocolViews viewsImpl = new ProtocolViews(forwarder);
         ERC1967Proxy viewsProxy = new ERC1967Proxy(
             address(viewsImpl),
             abi.encodeCall(
@@ -151,7 +152,6 @@ contract Deploy is Script {
         vm.label(address(stake), "StakeEngine");
         vm.label(address(score), "ScoreEngine");
         vm.label(address(viewsProxy), "ProtocolViews");
-        vm.label(address(forwarder), "Forwarder");
 
         // ── Production: initiate ownership transfer to timelock ──
         if (isProduction) {
@@ -177,8 +177,7 @@ contract Deploy is Script {
         string memory json = string.concat(
             '{"Authority":"',
             vm.toString(address(authority)),
-            '","Forwarder":"',
-            vm.toString(address(forwarder)),
+
             '","TimelockController":"',
             vm.toString(address(timelock)),
             '","VSPToken":"',

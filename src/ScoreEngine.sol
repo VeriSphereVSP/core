@@ -174,13 +174,15 @@ contract ScoreEngine is GovernedUpgradeable {
         if (linkVS <= 0) return 0;
 
         // Parent mass distributed to this link
-        int256 parentMass = (parentVS * parentTotal.toInt256()) / RAY;
+        // Multiply-then-divide to minimize precision loss
         uint256 sumOutgoing = _sumOutgoingLinkStake(e.fromClaimPostId, fee);
         if (sumOutgoing == 0) return 0;
 
-        int256 contrib = (parentMass * linkStake.toInt256()) /
+        // contrib = (parentVS * parentTotal * linkStake * linkVS) / (RAY * sumOutgoing * RAY)
+        // Reordered to avoid overflow: split into two steps
+        int256 numerator = (parentVS * parentTotal.toInt256() * linkStake.toInt256()) /
             sumOutgoing.toInt256();
-        contrib = (contrib * linkVS) / RAY;
+        int256 contrib = (numerator * linkVS) / (RAY * RAY);
 
         // Challenge links flip the sign
         if (e.isChallenge) contrib = -contrib;

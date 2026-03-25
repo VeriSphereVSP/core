@@ -68,6 +68,7 @@ contract LinkGraph is GovernedUpgradeable {
 
     function setRegistry(address registry_) external onlyGovernance {
         if (registry != address(0)) revert RegistryAlreadySet();
+        if (registry_ == address(0)) revert ZeroAddress();
         registry = registry_;
         emit RegistrySet(registry_);
     }

@@ -53,6 +53,18 @@ contract StakeEngine is GovernedUpgradeable {
     mapping(uint256 => PostState) private posts;
 
     uint256 public sMax;
+
+    // Manual reentrancy guard
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    uint256 private _reentrancyStatus;
+
+    modifier nonReentrant() {
+        require(_reentrancyStatus != _ENTERED, "ReentrancyGuard: reentrant call");
+        _reentrancyStatus = _ENTERED;
+        _;
+        _reentrancyStatus = _NOT_ENTERED;
+    }
     uint256 public sMaxLastUpdatedEpoch;
 
     /// @notice Snapshot period length. State-changing ops trigger O(N)
@@ -265,11 +277,11 @@ contract StakeEngine is GovernedUpgradeable {
     // Stake (state-changing)
     // ------------------------------------------------------------
 
-    function stake(uint256 postId, uint8 side, uint256 amount) external {
+    function stake(uint256 postId, uint8 side, uint256 amount) external nonReentrant {
         if (amount == 0) revert AmountZero();
         if (side > 1) revert InvalidSide();
 
-        ERC20_TOKEN.transferFrom(_msgSender(), address(this), amount);
+        require(ERC20_TOKEN.transferFrom(_msgSender(), address(this), amount), "VSP transfer failed");
 
         PostState storage ps = posts[postId];
         uint256 epoch = _currentEpoch();
@@ -295,7 +307,7 @@ contract StakeEngine is GovernedUpgradeable {
         uint8 side,
         uint256 amount,
         bool /* lifo - deprecated, kept for interface compat */
-    ) external {
+    ) external nonReentrant {
         if (amount == 0) revert AmountZero();
         if (side > 1) revert InvalidSide();
 
@@ -320,7 +332,7 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 TT = ps.sides[0].total + ps.sides[1].total;
         if (TT > sMax) sMax = TT;
 
-        ERC20_TOKEN.transfer(_msgSender(), amount);
+        require(ERC20_TOKEN.transfer(_msgSender(), amount), "VSP transfer failed");
 
         emit StakeWithdrawn(postId, _msgSender(), side, amount, true);
     }
@@ -329,7 +341,7 @@ contract StakeEngine is GovernedUpgradeable {
     // Permissionless update (anyone can trigger snapshot)
     // ------------------------------------------------------------
 
-    function updatePost(uint256 postId) external {
+    function updatePost(uint256 postId) external nonReentrant {
         uint256 epoch = _currentEpoch();
         _forceSnapshot(postId, epoch);
     }
@@ -752,12 +764,12 @@ contract StakeEngine is GovernedUpgradeable {
     }
 
     function _recomputeSideTotal(SideQueue storage q) internal {
-        uint256 total;
+        uint256 total = 0;
         for (uint256 i = 0; i < q.lots.length; i++) {
             total += q.lots[i].amount;
         }
         q.total = total;
     }
 
-    uint256[44] private __gap;
+    uint256[43] private __gap; // reduced by 1 for _reentrancyStatus
 }
