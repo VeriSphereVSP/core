@@ -8,61 +8,12 @@ import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
-import "../src/interfaces/IPostingFeePolicy.sol";
 
+import "./mocks/MockVSP.sol";
+import "./mocks/MockPostingFeePolicy.sol";
 import "./mocks/MockStakeRatePolicy.sol";
 import "./mocks/MockClaimActivityPolicy.sol";
 
-// -----------------------------
-// Mock Posting Fee Policy
-// -----------------------------
-contract MockPostingFeePolicy is IPostingFeePolicy {
-    uint256 public fee;
-
-    constructor(uint256 initialFee) {
-        fee = initialFee;
-    }
-
-    function postingFeeVSP() external view override returns (uint256) {
-        return fee;
-    }
-}
-
-// -----------------------------
-// Minimal Mock VSP
-// -----------------------------
-contract MockVSP {
-    mapping(address => uint256) public balances;
-    mapping(address => mapping(address => uint256)) public allowances;
-
-    function mint(address to, uint256 amount) external {
-        balances[to] += amount;
-    }
-
-    function burn(uint256 amount) external {
-        balances[msg.sender] -= amount;
-    }
-
-    function burnFrom(address from, uint256 amount) external {
-        balances[from] -= amount;
-    }
-
-    function transfer(address, uint256) external pure returns (bool) {
-        return true;
-    }
-
-    function transferFrom(address, address, uint256) external pure returns (bool) {
-        return true;
-    }
-
-    function approve(address, uint256) external pure returns (bool) {
-        return true;
-    }
-}
-
-// -----------------------------
-// Tests
-// -----------------------------
 contract ScoreEngineTest is Test {
     PostRegistry registry;
     StakeEngine stake;
@@ -79,36 +30,23 @@ contract ScoreEngineTest is Test {
         MockStakeRatePolicy stakeRatePolicy = new MockStakeRatePolicy();
         MockClaimActivityPolicy activityPolicy = new MockClaimActivityPolicy();
 
-        // ------------------------------------------------------------
-        // PostRegistry (proxy)
-        // ------------------------------------------------------------
         registry = PostRegistry(
             address(
                 new ERC1967Proxy(
                     address(new PostRegistry(address(0))),
                     abi.encodeCall(
                         PostRegistry.initialize,
-                        (
-                            address(this),     // governance
-                            address(vsp),
-                            address(feePolicy)
-                        )
+                        (address(this), address(vsp), address(feePolicy))
                     )
                 )
             )
         );
 
-        // ------------------------------------------------------------
-        // LinkGraph (proxy)
-        // ------------------------------------------------------------
         graph = LinkGraph(
             address(
                 new ERC1967Proxy(
                     address(new LinkGraph(address(0))),
-                    abi.encodeCall(
-                        LinkGraph.initialize,
-                        (address(this)) // governance
-                    )
+                    abi.encodeCall(LinkGraph.initialize, (address(this)))
                 )
             )
         );
@@ -116,28 +54,18 @@ contract ScoreEngineTest is Test {
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
 
-        // ------------------------------------------------------------
-        // StakeEngine (proxy)
-        // ------------------------------------------------------------
         stake = StakeEngine(
             address(
                 new ERC1967Proxy(
                     address(new StakeEngine(address(0))),
                     abi.encodeCall(
                         StakeEngine.initialize,
-                        (
-                            address(this),           // governance
-                            address(vsp),
-                            address(stakeRatePolicy)
-                        )
+                        (address(this), address(vsp), address(stakeRatePolicy))
                     )
                 )
             )
         );
 
-        // ------------------------------------------------------------
-        // ScoreEngine (proxy)
-        // ------------------------------------------------------------
         score = ScoreEngine(
             address(
                 new ERC1967Proxy(
@@ -145,7 +73,7 @@ contract ScoreEngineTest is Test {
                     abi.encodeCall(
                         ScoreEngine.initialize,
                         (
-                            address(this),           // governance
+                            address(this),
                             address(registry),
                             address(stake),
                             address(graph),
@@ -157,18 +85,18 @@ contract ScoreEngineTest is Test {
             )
         );
 
-        // ------------------------------------------------------------
-        // Mint enough for fees + stakes
-        // ------------------------------------------------------------
         vsp.mint(address(this), 1e30);
         vsp.mint(address(registry), 1e30);
+        vsp.approve(address(registry), type(uint256).max);
+        vsp.approve(address(stake), type(uint256).max);
     }
 
-    function test_VS_Zero_BelowFee() public {
+    function test_VS_BelowFee_BaseStillComputes() public {
         uint256 c = registry.createClaim("C");
 
         stake.stake(c, 0, 49);
-        assertEq(score.baseVSRay(c), 0);
+        // baseVSRay does NOT check activity — it always computes from stake.
+        assertEq(score.baseVSRay(c), 1e18, "baseVS computes regardless of activity");
     }
 
     function test_VS_NonZero_AtFee() public {
@@ -178,4 +106,3 @@ contract ScoreEngineTest is Test {
         assertEq(score.baseVSRay(c), 1e18);
     }
 }
-

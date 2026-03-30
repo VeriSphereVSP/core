@@ -34,3 +34,12 @@ Thumbs.db
 
 # misc
 audits
+
+# Generated deployment artifacts (written by deploy.sh / forge script)
+# The canonical copy lives in broadcast/ and is propagated by deploy.sh.
+# Do NOT commit these — they drift and cause address mismatches.
+deployments/dev.json
+deployments/fuji.json
+broadcast/
+cache/
+out/

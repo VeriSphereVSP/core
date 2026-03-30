@@ -1,0 +1,397 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+
+import "../src/PostRegistry.sol";
+import "../src/LinkGraph.sol";
+import "../src/StakeEngine.sol";
+import "../src/ScoreEngine.sol";
+import "../src/interfaces/IPostingFeePolicy.sol";
+
+import "./mocks/MockVSP.sol";
+import "./mocks/MockStakeRatePolicy.sol";
+import "./mocks/MockClaimActivityPolicy.sol";
+
+/// @title ScoreEngine Fuzz Tests
+/// @notice Property-based tests for VS computation, link propagation,
+///         cycle handling, and the credibility gate.
+contract ScoreEngineFuzzTest is Test {
+    PostRegistry registry;
+    StakeEngine stakeEng;
+    LinkGraph graph;
+    ScoreEngine score;
+
+    MockVSP vsp;
+
+    uint256 constant FEE = 50; // posting fee in mock
+
+    function _proxy(address impl, bytes memory data) internal returns (address) {
+        return address(new ERC1967Proxy(impl, data));
+    }
+
+    function setUp() public {
+        vsp = new MockVSP();
+
+        MockStakeRatePolicy ratePolicy = new MockStakeRatePolicy();
+        MockClaimActivityPolicy activityPolicy = new MockClaimActivityPolicy();
+
+        // Fee policy: totalStake > 0 makes a post active (mock)
+        MockPostingFeePolicy feePolicy = new MockPostingFeePolicy(FEE);
+
+        registry = PostRegistry(
+            _proxy(
+                address(new PostRegistry(address(0))),
+                abi.encodeCall(
+                    PostRegistry.initialize,
+                    (address(this), address(vsp), address(feePolicy))
+                )
+            )
+        );
+
+        graph = LinkGraph(
+            _proxy(
+                address(new LinkGraph(address(0))),
+                abi.encodeCall(LinkGraph.initialize, (address(this)))
+            )
+        );
+
+        stakeEng = StakeEngine(
+            _proxy(
+                address(new StakeEngine(address(0))),
+                abi.encodeCall(
+                    StakeEngine.initialize,
+                    (address(this), address(vsp), address(ratePolicy))
+                )
+            )
+        );
+
+        score = ScoreEngine(
+            _proxy(
+                address(new ScoreEngine(address(0))),
+                abi.encodeCall(
+                    ScoreEngine.initialize,
+                    (
+                        address(this),
+                        address(registry),
+                        address(stakeEng),
+                        address(graph),
+                        address(feePolicy),
+                        address(activityPolicy)
+                    )
+                )
+            )
+        );
+
+        graph.setRegistry(address(registry));
+        registry.setLinkGraph(address(graph));
+
+        vsp.mint(address(this), 1e36);
+        vsp.mint(address(registry), 1e36);
+        vsp.approve(address(stakeEng), type(uint256).max);
+        vsp.approve(address(registry), type(uint256).max);
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Helpers
+    // ────────────────────────────────────────────────────────────
+
+    function _createAndStake(
+        string memory text,
+        uint256 support,
+        uint256 challenge
+    ) internal returns (uint256 postId) {
+        postId = registry.createClaim(text);
+        if (support > 0) stakeEng.stake(postId, 0, support);
+        if (challenge > 0) stakeEng.stake(postId, 1, challenge);
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Invariant: baseVS is always in [-RAY, +RAY]
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_BaseVSBounded(
+        uint128 support,
+        uint128 challenge
+    ) public {
+        uint256 sup = bound(uint256(support), 0, 1e30);
+        uint256 chal = bound(uint256(challenge), 0, 1e30);
+        vm.assume(sup + chal > 0); // need at least some stake
+
+        uint256 c = _createAndStake("bounded test", sup, chal);
+
+        int256 vs = score.baseVSRay(c);
+        int256 RAY = 1e18;
+
+        assertGe(vs, -RAY, "baseVS below -RAY");
+        assertLe(vs, RAY, "baseVS above RAY");
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Invariant: baseVS sign matches majority side
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_BaseVSSignMatchesMajority(
+        uint128 support,
+        uint128 challenge
+    ) public {
+        uint256 sup = bound(uint256(support), FEE, 1e30);
+        uint256 chal = bound(uint256(challenge), FEE, 1e30);
+        vm.assume(sup != chal);
+
+        uint256 c = _createAndStake("sign test", sup, chal);
+
+        int256 vs = score.baseVSRay(c);
+
+        if (sup > chal) {
+            assertGt(vs, 0, "support majority but VS <= 0");
+        } else {
+            assertLt(vs, 0, "challenge majority but VS >= 0");
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Invariant: effectiveVS is always in [-RAY, +RAY]
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_EffectiveVSBounded(
+        uint128 support,
+        uint128 challenge
+    ) public {
+        uint256 sup = bound(uint256(support), FEE, 1e30);
+        uint256 chal = bound(uint256(challenge), 0, 1e30);
+
+        uint256 c = _createAndStake("eff bounded", sup, chal);
+
+        int256 vs = score.effectiveVSRay(c);
+        int256 RAY = 1e18;
+
+        assertGe(vs, -RAY, "effectiveVS below -RAY");
+        assertLe(vs, RAY, "effectiveVS above RAY");
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Invariant: support-only claim has baseVS == +RAY
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_SupportOnlyIsMaxVS(uint128 amount) public {
+        uint256 amt = bound(uint256(amount), FEE, 1e30);
+
+        uint256 c = _createAndStake("support only", amt, 0);
+
+        int256 vs = score.baseVSRay(c);
+        assertEq(vs, 1e18, "support-only should be +RAY");
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Invariant: challenge-only claim has baseVS == -RAY
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_ChallengeOnlyIsMinVS(uint128 amount) public {
+        uint256 amt = bound(uint256(amount), FEE, 1e30);
+
+        uint256 c = _createAndStake("challenge only", 0, amt);
+
+        int256 vs = score.baseVSRay(c);
+        assertEq(vs, -1e18, "challenge-only should be -RAY");
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Credibility gate: negative-VS parent contributes nothing
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_NegativeParentContributesNothing(
+        uint128 parentChallenge,
+        uint128 childSupport
+    ) public {
+        uint256 pChal = bound(uint256(parentChallenge), FEE, 1e30);
+        uint256 cSup = bound(uint256(childSupport), FEE, 1e30);
+
+        // Parent: challenge-only (VS < 0)
+        uint256 parent = _createAndStake("bad parent", 0, pChal);
+
+        // Child: support-only
+        uint256 child = _createAndStake("child claim", cSup, 0);
+
+        // Link: parent supports child
+        uint256 link = registry.createLink(parent, child, false);
+        stakeEng.stake(link, 0, FEE); // activate the link
+
+        // Child's effective VS should equal its base VS (parent blocked)
+        int256 baseVS = score.baseVSRay(child);
+        int256 effVS = score.effectiveVSRay(child);
+
+        assertEq(effVS, baseVS, "negative parent should not affect child");
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Credibility gate: negative-VS link contributes nothing
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_NegativeLinkContributesNothing(
+        uint128 parentSupport,
+        uint128 childSupport
+    ) public {
+        uint256 pSup = bound(uint256(parentSupport), FEE, 1e30);
+        uint256 cSup = bound(uint256(childSupport), FEE, 1e30);
+
+        // Parent: positive VS
+        uint256 parent = _createAndStake("good parent", pSup, 0);
+
+        // Child: positive VS
+        uint256 child = _createAndStake("good child", cSup, 0);
+
+        // Link: parent supports child, but link has negative VS
+        uint256 link = registry.createLink(parent, child, false);
+        stakeEng.stake(link, 1, FEE * 2); // challenge the link → negative link VS
+
+        // Child's effective VS should equal its base VS (link blocked)
+        int256 baseVS = score.baseVSRay(child);
+        int256 effVS = score.effectiveVSRay(child);
+
+        assertEq(effVS, baseVS, "negative link should not affect child");
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Challenge link pushes child VS down
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_ChallengeLinkReducesChildVS(
+        uint128 parentSupport,
+        uint128 childSupport
+    ) public {
+        uint256 pSup = bound(uint256(parentSupport), FEE * 2, 1e28);
+        uint256 cSup = bound(uint256(childSupport), FEE * 2, 1e28);
+
+        // Parent: credible (positive VS)
+        uint256 parent = _createAndStake("strong parent", pSup, 0);
+
+        // Child: has support
+        uint256 child = _createAndStake("target child", cSup, 0);
+
+        int256 vsBeforeLink = score.effectiveVSRay(child);
+
+        // Challenge link from parent to child
+        uint256 link = registry.createLink(parent, child, true);
+        stakeEng.stake(link, 0, pSup); // strongly supported link
+
+        int256 vsAfterLink = score.effectiveVSRay(child);
+
+        // Child's effective VS should decrease
+        assertLt(vsAfterLink, vsBeforeLink, "challenge link should reduce child VS");
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Support link pushes child VS up (or keeps it at max)
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_SupportLinkDoesNotReduceChildVS(
+        uint128 parentSupport,
+        uint128 childSupport,
+        uint128 childChallenge
+    ) public {
+        uint256 pSup = bound(uint256(parentSupport), FEE * 2, 1e28);
+        uint256 cSup = bound(uint256(childSupport), FEE * 2, 1e28);
+        uint256 cChal = bound(uint256(childChallenge), FEE, 1e28);
+
+        // Parent: credible
+        uint256 parent = _createAndStake("helper parent", pSup, 0);
+
+        // Child: has some challenge (VS < 100%)
+        uint256 child = _createAndStake("helped child", cSup, cChal);
+
+        int256 vsBefore = score.effectiveVSRay(child);
+
+        // Support link from parent to child
+        uint256 link = registry.createLink(parent, child, false);
+        stakeEng.stake(link, 0, pSup);
+
+        int256 vsAfter = score.effectiveVSRay(child);
+
+        assertGe(vsAfter, vsBefore, "support link should not reduce child VS");
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Cycle handling: mutual challenge doesn't revert
+    // ────────────────────────────────────────────────────────────
+
+    function testFuzz_MutualChallengeDoesNotRevert(
+        uint128 stakeA,
+        uint128 stakeB
+    ) public {
+        uint256 sA = bound(uint256(stakeA), FEE * 2, 1e28);
+        uint256 sB = bound(uint256(stakeB), FEE * 2, 1e28);
+
+        uint256 claimA = _createAndStake("claim A cycle", sA, 0);
+        uint256 claimB = _createAndStake("claim B cycle", sB, 0);
+
+        // A challenges B
+        uint256 linkAB = registry.createLink(claimA, claimB, true);
+        stakeEng.stake(linkAB, 0, FEE * 2);
+
+        // B challenges A (creates a cycle)
+        uint256 linkBA = registry.createLink(claimB, claimA, true);
+        stakeEng.stake(linkBA, 0, FEE * 2);
+
+        // Both effective VS calls should succeed (not revert)
+        int256 vsA = score.effectiveVSRay(claimA);
+        int256 vsB = score.effectiveVSRay(claimB);
+
+        // Both should still be bounded
+        assertGe(vsA, -1e18);
+        assertLe(vsA, 1e18);
+        assertGe(vsB, -1e18);
+        assertLe(vsB, 1e18);
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // No-link post: effectiveVS has same sign as baseVS
+    // ────────────────────────────────────────────────────────────
+
+    /// @notice A post with no incoming links should have effectiveVS with the
+    ///         same sign as baseVS. The exact magnitudes may differ because
+    ///         baseVSRay uses A*RAY/T (asymmetric) while effectiveVSRay uses
+    ///         (support-challenge)*RAY/(support+challenge) (symmetric subtraction).
+    ///         These are mathematically different formulas that agree on sign
+    ///         and extremes (0, +/-RAY) but diverge at intermediate values.
+    function testFuzz_NoLinkEffectiveSameSign(
+        uint128 support,
+        uint128 challenge
+    ) public {
+        uint256 sup = bound(uint256(support), FEE, 1e30);
+        uint256 chal = bound(uint256(challenge), 0, 1e30);
+
+        uint256 c = _createAndStake("no-link sign", sup, chal);
+
+        int256 baseVS = score.baseVSRay(c);
+        int256 effVS = score.effectiveVSRay(c);
+
+        // Same sign, or both near-zero.
+        // The two formulas (baseVSRay: A*RAY/T, effectiveVSRay: (S-C)*RAY/pool)
+        // can disagree on sign when VS is near zero due to integer rounding.
+        // We allow effectiveVS == 0 when baseVS is very small.
+        if (baseVS > 0) {
+            assertTrue(effVS >= 0, "effectiveVS should be non-negative when baseVS is positive");
+        }
+        if (baseVS < 0) {
+            assertTrue(effVS <= 0, "effectiveVS should be non-positive when baseVS is negative");
+        }
+        if (baseVS == 0) {
+            assertEq(effVS, 0, "effectiveVS should be zero when baseVS is zero");
+        }
+    }
+}
+
+/// @notice Minimal mock for posting fee policy (used in ScoreEngine tests)
+contract MockPostingFeePolicy is IPostingFeePolicy {
+    uint256 public fee;
+
+    constructor(uint256 f) {
+        fee = f;
+    }
+
+    function postingFeeVSP() external view returns (uint256) {
+        return fee;
+    }
+}

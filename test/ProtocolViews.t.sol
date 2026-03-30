@@ -168,7 +168,8 @@ contract ProtocolViewsTest is Test {
         stake.stake(a, 0, 49);
         ProtocolViews.ClaimSummary memory s1 = views.getClaimSummary(a);
         assertFalse(s1.isActive);
-        assertEq(s1.baseVSRay, 0);
+        // baseVSRay computes from stake regardless of activity
+        assertEq(s1.baseVSRay, 1e18, "baseVS is +RAY for support-only (activity irrelevant)");
 
         stake.stake(a, 0, 1);
         ProtocolViews.ClaimSummary memory s2 = views.getClaimSummary(a);

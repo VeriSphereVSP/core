@@ -6,51 +6,9 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
-import "../src/interfaces/IVSPToken.sol";
-import "../src/governance/PostingFeePolicy.sol";
 
-// -----------------------------------------------------------------------------
-// Mocks
-// -----------------------------------------------------------------------------
-
-contract MockVSP is IVSPToken {
-    mapping(address => uint256) public balances;
-    mapping(address => mapping(address => uint256)) public allowances;
-
-    function mint(address, uint256) external {}
-    function burn(uint256) external {}
-    function burnFrom(address from, uint256 amount) external {
-        balances[from] -= amount;
-    }
-
-    function transfer(address, uint256) external pure returns (bool) { return true; }
-    function transferFrom(address, address, uint256) external pure returns (bool) { return true; }
-
-    function balanceOf(address account) external view returns (uint256) {
-        return balances[account];
-    }
-
-    function approve(address, uint256) external pure returns (bool) { return true; }
-    function allowance(address owner, address spender) external view returns (uint256) {
-        return allowances[owner][spender];
-    }
-}
-
-contract MockPostingFeePolicy is IPostingFeePolicy {
-    uint256 public fee;
-
-    constructor(uint256 f) {
-        fee = f;
-    }
-
-    function postingFeeVSP() external view returns (uint256) {
-        return fee;
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Tests
-// -----------------------------------------------------------------------------
+import "./mocks/MockVSP.sol";
+import "./mocks/MockPostingFeePolicy.sol";
 
 contract PostRegistryTest is Test {
     PostRegistry registry;
@@ -60,11 +18,7 @@ contract PostRegistryTest is Test {
 
     function setUp() public {
         vsp = new MockVSP();
-        feePolicy = new MockPostingFeePolicy(100); // example fee
-
-        // ------------------------------------------------------------
-        // Deploy PostRegistry via ERC1967Proxy
-        // ------------------------------------------------------------
+        feePolicy = new MockPostingFeePolicy(100);
 
         registry = PostRegistry(
             address(
@@ -72,35 +26,27 @@ contract PostRegistryTest is Test {
                     address(new PostRegistry(address(0))),
                     abi.encodeCall(
                         PostRegistry.initialize,
-                        (
-                            address(this),     // governance
-                            address(vsp),
-                            address(feePolicy)
-                        )
+                        (address(this), address(vsp), address(feePolicy))
                     )
                 )
             )
         );
-
-        // ------------------------------------------------------------
-        // Deploy LinkGraph via ERC1967Proxy
-        // ------------------------------------------------------------
 
         graph = LinkGraph(
             address(
                 new ERC1967Proxy(
                     address(new LinkGraph(address(0))),
-                    abi.encodeCall(
-                        LinkGraph.initialize,
-                        (address(this)) // governance
-                    )
+                    abi.encodeCall(LinkGraph.initialize, (address(this)))
                 )
             )
         );
 
-        // Wire permissions (same as before)
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
+
+        // Fund test account for posting fees
+        vsp.mint(address(this), 1e30);
+        vsp.approve(address(registry), type(uint256).max);
     }
 
     function testCreateClaim() public {
@@ -160,4 +106,3 @@ contract PostRegistryTest is Test {
         registry.createClaim("");
     }
 }
-

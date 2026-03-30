@@ -6,61 +6,10 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
-import "../src/interfaces/IVSPToken.sol";
-import "../src/interfaces/IPostingFeePolicy.sol";
 
-// ------------------------------------------------------------
-// Mock VSP
-// ------------------------------------------------------------
-contract MockVSP is IVSPToken {
-    mapping(address => uint256) public balances;
-    mapping(address => mapping(address => uint256)) public allowances;
+import "./mocks/MockVSP.sol";
+import "./mocks/MockPostingFeePolicy.sol";
 
-    function mint(address, uint256) external {}
-    function burn(uint256) external {}
-    function burnFrom(address from, uint256 amount) external {
-        balances[from] -= amount;
-    }
-
-    function transfer(address, uint256) external pure returns (bool) {
-        return true;
-    }
-
-    function transferFrom(address, address, uint256) external pure returns (bool) {
-        return true;
-    }
-
-    function balanceOf(address account) external view returns (uint256) {
-        return balances[account];
-    }
-
-    function approve(address, uint256) external pure returns (bool) {
-        return true;
-    }
-
-    function allowance(address owner, address spender) external view returns (uint256) {
-        return allowances[owner][spender];
-    }
-}
-
-// ------------------------------------------------------------
-// Mock Posting Fee Policy
-// ------------------------------------------------------------
-contract MockPostingFeePolicy is IPostingFeePolicy {
-    uint256 public fee;
-
-    constructor(uint256 f) {
-        fee = f;
-    }
-
-    function postingFeeVSP() external view returns (uint256) {
-        return fee;
-    }
-}
-
-// ------------------------------------------------------------
-// Tests
-// ------------------------------------------------------------
 contract LinkGraphAcyclicTest is Test {
     PostRegistry registry;
     LinkGraph graph;
@@ -69,42 +18,33 @@ contract LinkGraphAcyclicTest is Test {
         MockVSP vsp = new MockVSP();
         MockPostingFeePolicy feePolicy = new MockPostingFeePolicy(100);
 
-        // ------------------------------------------------------------
-        // PostRegistry (proxy)
-        // ------------------------------------------------------------
         registry = PostRegistry(
             address(
                 new ERC1967Proxy(
                     address(new PostRegistry(address(0))),
                     abi.encodeCall(
                         PostRegistry.initialize,
-                        (
-                            address(this),     // governance
-                            address(vsp),
-                            address(feePolicy)
-                        )
+                        (address(this), address(vsp), address(feePolicy))
                     )
                 )
             )
         );
 
-        // ------------------------------------------------------------
-        // LinkGraph (proxy)
-        // ------------------------------------------------------------
         graph = LinkGraph(
             address(
                 new ERC1967Proxy(
                     address(new LinkGraph(address(0))),
-                    abi.encodeCall(
-                        LinkGraph.initialize,
-                        (address(this)) // governance
-                    )
+                    abi.encodeCall(LinkGraph.initialize, (address(this)))
                 )
             )
         );
 
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
+
+        // Fund test account for posting fees
+        vsp.mint(address(this), 1e30);
+        vsp.approve(address(registry), type(uint256).max);
     }
 
     function test_OutgoingEdges_ReturnTypedStruct() public {
@@ -115,13 +55,12 @@ contract LinkGraphAcyclicTest is Test {
 
         LinkGraph.Edge[] memory edges = graph.getOutgoing(a);
         assertEq(edges.length, 1);
-
         assertEq(edges[0].toClaimPostId, b);
         assertEq(edges[0].linkPostId, linkPostId);
         assertEq(edges[0].isChallenge, false);
     }
 
-    function test_Acyclic_RevertsOnCycle() public {
+    function test_CyclesAreAllowed() public {
         uint256 a = registry.createClaim("A");
         uint256 b = registry.createClaim("B");
         uint256 c = registry.createClaim("C");
@@ -129,8 +68,13 @@ contract LinkGraphAcyclicTest is Test {
         registry.createLink(a, b, false);
         registry.createLink(b, c, false);
 
-        vm.expectRevert(); // CycleDetected
-        registry.createLink(c, a, false);
+        // Cycle A->B->C->A is allowed
+        uint256 linkPostId = registry.createLink(c, a, false);
+        assertTrue(linkPostId > 0, "cycle link should succeed");
+
+        LinkGraph.Edge[] memory outC = graph.getOutgoing(c);
+        assertEq(outC.length, 1);
+        assertEq(outC[0].toClaimPostId, a);
     }
 
     function test_Acyclic_AllowsDAG() public {
@@ -149,4 +93,3 @@ contract LinkGraphAcyclicTest is Test {
         assertEq(inC.length, 2);
     }
 }
-

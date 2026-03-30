@@ -99,6 +99,7 @@ contract StakeEngine is GovernedUpgradeable {
     error ZeroAddressToken();
     error InvalidTranches();
     error InvalidSnapshotPeriod();
+    error NoGhostLots();
 
     // ------------------------------------------------------------
     // Events
@@ -127,6 +128,7 @@ contract StakeEngine is GovernedUpgradeable {
     event EpochBurned(uint256 indexed postId, uint256 amount);
     event SnapshotPeriodSet(uint256 oldPeriod, uint256 newPeriod);
     event NumTranchesSet(uint256 oldTranches, uint256 newTranches);
+    event LotsCompacted(uint256 indexed postId, uint8 side, uint256 removed);
 
     // ------------------------------------------------------------
     // Constructor / Initializer
@@ -167,6 +169,48 @@ contract StakeEngine is GovernedUpgradeable {
         emit NumTranchesSet(numTranches, newTranches);
         numTranches = newTranches;
     }
+    /// @notice Remove zero-amount ghost lots from a side queue.
+    ///         Callable by governance to reduce snapshot gas cost on posts
+    ///         that have accumulated burned-out lots over time.
+    ///         Uses swap-and-pop to compact the array in O(N).
+    /// @param postId The post to compact.
+    /// @param side   0 = support, 1 = challenge.
+    function compactLots(uint256 postId, uint8 side) external onlyGovernance nonReentrant {
+        if (side > 1) revert InvalidSide();
+
+        PostState storage ps = posts[postId];
+        SideQueue storage q = ps.sides[side];
+
+        uint256 removed = 0;
+
+        // Walk backwards so swap-and-pop doesn't skip elements
+        uint256 i = q.lots.length;
+        while (i > 0) {
+            i--;
+            if (q.lots[i].amount == 0) {
+                address ghostStaker = q.lots[i].staker;
+
+                if (i == q.lots.length - 1) {
+                    _setLotIndex(ps, ghostStaker, side, 0);
+                    q.lots.pop();
+                } else {
+                    uint256 lastIdx = q.lots.length - 1;
+                    StakeLot storage lastLot = q.lots[lastIdx];
+                    address lastStaker = lastLot.staker;
+
+                    q.lots[i] = lastLot;
+                    _setLotIndex(ps, lastStaker, side, i + 1);
+                    _setLotIndex(ps, ghostStaker, side, 0);
+                    q.lots.pop();
+                }
+                removed++;
+            }
+        }
+
+        if (removed == 0) revert NoGhostLots();
+        emit LotsCompacted(postId, side, removed);
+    }
+
 
     // ------------------------------------------------------------
     // Read (view — always current via projection)

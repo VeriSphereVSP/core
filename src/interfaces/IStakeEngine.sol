@@ -25,4 +25,7 @@ interface IStakeEngine {
         uint256 postId,
         uint8 side
     ) external view returns (uint256);
+
+    /// @notice Remove zero-amount ghost lots. Governance-only.
+    function compactLots(uint256 postId, uint8 side) external;
 }

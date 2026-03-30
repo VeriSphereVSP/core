@@ -9,7 +9,7 @@ import "./interfaces/IClaimActivityPolicy.sol";
 import "./governance/GovernedUpgradeable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
-/// @title ScoreEngine
+/// @title ScoreEngine (v2 — bounded fan-in)
 /// @notice Computes Verity Scores for claims using stake-weighted evidence propagation.
 ///
 /// Key rules:
@@ -19,9 +19,12 @@ import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 ///   4. A claim is active if direct stakes OR abs(incoming contributions) >= posting fee.
 ///   5. Cycle elimination: when computing VS(X), if a chain of links leads back to X,
 ///      X's contribution is zero. X cannot influence its own VS through any path.
-///      The rest of the chain still applies — only the cycled post is removed.
-///      Example: computing VS(F), chain F→A→S→F: F's contribution to S is 0,
-///      but A still receives S's contribution (computed without F's influence).
+///
+/// v2 changes:
+///   - MAX_INCOMING_EDGES: bounds the number of incoming edges processed per claim.
+///   - MAX_OUTGOING_LINKS: bounds the outgoing link stake summation per parent.
+///   - Both are governance-configurable via setEdgeLimits().
+///   - Prevents gas exhaustion on popular claims with many evidence links.
 contract ScoreEngine is GovernedUpgradeable {
     using SafeCast for uint256;
 
@@ -33,6 +36,23 @@ contract ScoreEngine is GovernedUpgradeable {
 
     int256 internal constant RAY = 1e18;
     uint256 internal constant MAX_DEPTH = 32;
+
+    // ── New in v2: bounded fan-in ────────────────────────────────
+    // These use gap slots (no storage layout change).
+
+    /// @notice Max incoming edges processed per effectiveVSRay call.
+    ///         Edges beyond this limit are silently skipped.
+    uint256 public maxIncomingEdges;
+
+    /// @notice Max outgoing links summed when computing a parent's
+    ///         link stake distribution. Links beyond this are skipped.
+    uint256 public maxOutgoingLinks;
+
+    uint256 private constant DEFAULT_MAX_INCOMING = 64;
+    uint256 private constant DEFAULT_MAX_OUTGOING = 64;
+
+    event EdgeLimitsSet(uint256 maxIncoming, uint256 maxOutgoing);
+    error InvalidEdgeLimit();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
@@ -53,7 +73,25 @@ contract ScoreEngine is GovernedUpgradeable {
         graph = LinkGraph(graph_);
         feePolicy = IPostingFeePolicy(feePolicy_);
         activityPolicy = IClaimActivityPolicy(activityPolicy_);
+        maxIncomingEdges = DEFAULT_MAX_INCOMING;
+        maxOutgoingLinks = DEFAULT_MAX_OUTGOING;
     }
+
+    // ── Governance ───────────────────────────────────────────────
+
+    /// @notice Set the maximum number of edges processed in VS computation.
+    ///         Governance-only. Values of 0 are rejected.
+    function setEdgeLimits(
+        uint256 maxIncoming_,
+        uint256 maxOutgoing_
+    ) external onlyGovernance {
+        if (maxIncoming_ == 0 || maxOutgoing_ == 0) revert InvalidEdgeLimit();
+        maxIncomingEdges = maxIncoming_;
+        maxOutgoingLinks = maxOutgoing_;
+        emit EdgeLimitsSet(maxIncoming_, maxOutgoing_);
+    }
+
+    // ── VS Computation ──────────────────────────────────────────
 
     function baseVSRay(uint256 postId) public view returns (int256) {
         (uint256 A, uint256 D) = stake.getPostTotals(postId);
@@ -76,11 +114,7 @@ contract ScoreEngine is GovernedUpgradeable {
     ) internal view returns (int256) {
         if (depth > MAX_DEPTH) return 0;
 
-        // Cycle detection: if this post is already being computed upstream,
-        // return 0. This ensures a post cannot influence its own VS through
-        // any chain of links. The parent that references this cycled post
-        // will see parentVS=0, which the credibility gate blocks, so the
-        // cycled edge contributes nothing. Other edges of the parent still apply.
+        // Cycle detection
         for (uint256 i = 0; i < depth; i++) {
             if (computing[i] == postId) return 0;
         }
@@ -93,18 +127,18 @@ contract ScoreEngine is GovernedUpgradeable {
             directSupport + directChallenge
         );
 
-        // Compute all incoming link contributions
+        // Compute incoming link contributions (bounded)
         (
             int256 netContribution,
             uint256 absContribution
         ) = _sumIncomingContributions(postId, computing, depth);
 
-        // Activity: direct stakes OR incoming contributions >= posting fee
+        // Activity gate
         if (!directlyActive && absContribution < feePolicy.postingFeeVSP()) {
             return 0;
         }
 
-        // Combine direct stakes with contributions
+        // Combine
         int256 totalSupport = directSupport.toInt256();
         int256 totalChallenge = directChallenge.toInt256();
 
@@ -120,8 +154,7 @@ contract ScoreEngine is GovernedUpgradeable {
         return _clampRay(((totalSupport - totalChallenge) * RAY) / pool);
     }
 
-    /// @dev Computes the sum of all incoming link contributions for a post.
-    /// Returns (netContribution, absContribution).
+    /// @dev Computes the sum of incoming link contributions, bounded by maxIncomingEdges.
     function _sumIncomingContributions(
         uint256 postId,
         uint256[] memory computing,
@@ -130,7 +163,12 @@ contract ScoreEngine is GovernedUpgradeable {
         LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(postId);
         uint256 fee = feePolicy.postingFeeVSP();
 
-        for (uint256 i = 0; i < inc.length; i++) {
+        // Bound: process at most maxIncomingEdges
+        uint256 limit = inc.length;
+        uint256 maxIn = maxIncomingEdges;
+        if (maxIn > 0 && limit > maxIn) limit = maxIn;
+
+        for (uint256 i = 0; i < limit; i++) {
             int256 contrib = _computeEdgeContribution(
                 inc[i],
                 computing,
@@ -157,11 +195,7 @@ contract ScoreEngine is GovernedUpgradeable {
         uint256 linkStake = _totalStake(e.linkPostId);
         if (!activityPolicy.isActive(linkStake)) return 0;
 
-        // Parent VS (recursive, with cycle detection).
-        // If the parent is on the computing stack, _effectiveVSRay will
-        // return 0, the credibility gate below blocks it, and this edge
-        // contributes nothing. The parent's OTHER incoming edges still
-        // compute normally because only the cycled post returns 0.
+        // Parent VS (recursive, with cycle detection)
         int256 parentVS = _effectiveVSRay(
             e.fromClaimPostId,
             computing,
@@ -173,18 +207,14 @@ contract ScoreEngine is GovernedUpgradeable {
         int256 linkVS = baseVSRay(e.linkPostId);
         if (linkVS <= 0) return 0;
 
-        // Parent mass distributed to this link
-        // Multiply-then-divide to minimize precision loss
+        // Parent mass distributed to this link (bounded outgoing sum)
         uint256 sumOutgoing = _sumOutgoingLinkStake(e.fromClaimPostId, fee);
         if (sumOutgoing == 0) return 0;
 
-        // contrib = (parentVS * parentTotal * linkStake * linkVS) / (RAY * sumOutgoing * RAY)
-        // Reordered to avoid overflow: split into two steps
         int256 numerator = (parentVS * parentTotal.toInt256() * linkStake.toInt256()) /
             sumOutgoing.toInt256();
         int256 contrib = (numerator * linkVS) / (RAY * RAY);
 
-        // Challenge links flip the sign
         if (e.isChallenge) contrib = -contrib;
 
         return contrib;
@@ -195,12 +225,19 @@ contract ScoreEngine is GovernedUpgradeable {
         return s + d;
     }
 
+    /// @dev Sum outgoing link stakes, bounded by maxOutgoingLinks.
     function _sumOutgoingLinkStake(
         uint256 claimPostId,
         uint256 fee
     ) internal view returns (uint256 sum) {
         LinkGraph.Edge[] memory outs = graph.getOutgoing(claimPostId);
-        for (uint256 i = 0; i < outs.length; i++) {
+
+        // Bound: process at most maxOutgoingLinks
+        uint256 limit = outs.length;
+        uint256 maxOut = maxOutgoingLinks;
+        if (maxOut > 0 && limit > maxOut) limit = maxOut;
+
+        for (uint256 i = 0; i < limit; i++) {
             uint256 t = _totalStake(outs[i].linkPostId);
             if (t >= fee) sum += t;
         }
@@ -216,5 +253,6 @@ contract ScoreEngine is GovernedUpgradeable {
         return x >= 0 ? uint256(x) : uint256(-x);
     }
 
-    uint256[50] private __gap;
+    // Reduced gap by 2 for maxIncomingEdges + maxOutgoingLinks
+    uint256[48] private __gap;
 }
