@@ -53,6 +53,7 @@ contract StakeEngine is GovernedUpgradeable {
     mapping(uint256 => PostState) private posts;
 
     uint256 public sMax;
+    uint256 public sMaxPostId; // Post ID that currently holds sMax
 
     // Manual reentrancy guard
     uint256 private constant _NOT_ENTERED = 1;
@@ -83,8 +84,9 @@ contract StakeEngine is GovernedUpgradeable {
     uint256 public constant YEAR_LENGTH = 365 days;
     uint256 private constant RAY = 1e18;
 
-    uint256 private constant SMAX_DECAY_RATE_RAY = 999e15; // 0.999
-    uint256 private constant SMAX_MAX_DECAY_EPOCHS = 3650;
+    // sMax decay constants removed — sMax is now tracked live
+    // uint256 private constant SMAX_DECAY_RATE_RAY = 999e15;
+    // uint256 private constant SMAX_MAX_DECAY_EPOCHS = 3650;
 
     uint256 private constant DEFAULT_SNAPSHOT_PERIOD = 1 days;
     uint256 private constant DEFAULT_NUM_TRANCHES = 10;
@@ -371,10 +373,9 @@ contract StakeEngine is GovernedUpgradeable {
         lot.amount -= amount;
         ps.sides[side].total -= amount;
 
-        // Update sMax
-        _refreshSMax(epoch);
+        // Update sMax (may trigger rescan if this was the leader)
         uint256 TT = ps.sides[0].total + ps.sides[1].total;
-        if (TT > sMax) sMax = TT;
+        _updateSMax(postId, TT);
 
         require(ERC20_TOKEN.transfer(_msgSender(), amount), "VSP transfer failed");
 
@@ -422,8 +423,6 @@ contract StakeEngine is GovernedUpgradeable {
             if (lastEpoch == 0) ps.lastSnapshotEpoch = currentEpoch;
             return;
         }
-
-        _refreshSMax(currentEpoch);
 
         SideQueue storage qs = ps.sides[0];
         SideQueue storage qc = ps.sides[1];
@@ -491,7 +490,7 @@ contract StakeEngine is GovernedUpgradeable {
 
         // Update sMax
         uint256 TT = qs.total + qc.total;
-        if (TT > sMax) sMax = TT;
+        _updateSMax(postId, TT);
 
         emit PostUpdated(postId, currentEpoch, qs.total, qc.total);
     }
@@ -590,9 +589,8 @@ contract StakeEngine is GovernedUpgradeable {
         q.total += amount;
 
         // Update sMax
-        _refreshSMax(_currentEpoch());
         uint256 TT = ps.sides[0].total + ps.sides[1].total;
-        if (TT > sMax) sMax = TT;
+        _updateSMax(postId, TT);
     }
 
     function _getLotIndex(
@@ -770,41 +768,50 @@ contract StakeEngine is GovernedUpgradeable {
         return block.timestamp / EPOCH_LENGTH;
     }
 
-    function _refreshSMax(uint256 currentEpoch) internal {
-        if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) return;
-
-        uint256 epochsElapsed = currentEpoch - sMaxLastUpdatedEpoch;
-        if (epochsElapsed > SMAX_MAX_DECAY_EPOCHS) {
-            epochsElapsed = SMAX_MAX_DECAY_EPOCHS;
+    /// @dev Update sMax after a post's total changes.
+    ///      If the modified post is now the largest, it becomes the leader.
+    ///      If the leader just got smaller, rescan to find the new leader.
+    function _updateSMax(uint256 postId, uint256 postTotal) internal {
+        if (postTotal >= sMax) {
+            // This post is the new leader (or tied for it)
+            sMax = postTotal;
+            sMaxPostId = postId;
+        } else if (postId == sMaxPostId) {
+            // The current leader just got smaller — need to rescan.
+            // For gas efficiency, we accept the current post's new total
+            // as sMax and let future stakes correct upward if there's a
+            // larger post. This is O(1) instead of O(N).
+            // Governance can call rescanSMax() if needed.
+            sMax = postTotal;
+            // sMaxPostId stays the same — it's still the best we know
         }
-
-        uint256 decayed = sMax;
-        for (uint256 i = 0; i < epochsElapsed; i++) {
-            decayed = (decayed * SMAX_DECAY_RATE_RAY) / RAY;
-            if (decayed == 0) break;
-        }
-
-        sMax = decayed;
-        sMaxLastUpdatedEpoch = currentEpoch;
+        // Otherwise: some other post changed but isn't the leader — no update needed
     }
 
-    /// @dev View-only sMax projection (no state mutation).
+    /// @notice Governance: force a rescan of sMax across known posts.
+    ///         Call this if sMax appears incorrect (e.g., after griefing recovery).
+    ///         Caller provides post IDs to check (on-chain enumeration is too expensive).
+    function rescanSMax(uint256[] calldata postIds) external onlyGovernance {
+        uint256 best = 0;
+        uint256 bestId = 0;
+        for (uint256 i = 0; i < postIds.length; i++) {
+            PostState storage ps = posts[postIds[i]];
+            uint256 total = ps.sides[0].total + ps.sides[1].total;
+            if (total > best) {
+                best = total;
+                bestId = postIds[i];
+            }
+        }
+        sMax = best;
+        sMaxPostId = bestId;
+        emit SMaxRescanned(best, bestId);
+    }
+
+    /// @dev View-only sMax — now live, no projection needed.
     function _projectSMaxDecay(
-        uint256 currentEpoch
+        uint256 /* currentEpoch */
     ) internal view returns (uint256) {
-        if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) return sMax;
-
-        uint256 epochsElapsed = currentEpoch - sMaxLastUpdatedEpoch;
-        if (epochsElapsed > SMAX_MAX_DECAY_EPOCHS) {
-            epochsElapsed = SMAX_MAX_DECAY_EPOCHS;
-        }
-
-        uint256 decayed = sMax;
-        for (uint256 i = 0; i < epochsElapsed; i++) {
-            decayed = (decayed * SMAX_DECAY_RATE_RAY) / RAY;
-            if (decayed == 0) break;
-        }
-        return decayed;
+        return sMax;
     }
 
     function _recomputeSideTotal(SideQueue storage q) internal {
@@ -815,5 +822,5 @@ contract StakeEngine is GovernedUpgradeable {
         q.total = total;
     }
 
-    uint256[43] private __gap; // reduced by 1 for _reentrancyStatus
+    uint256[42] private __gap; // reduced by 2: _reentrancyStatus + sMaxPostId
 }
