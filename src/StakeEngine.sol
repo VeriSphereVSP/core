@@ -97,6 +97,7 @@ contract StakeEngine is GovernedUpgradeable {
 
     error InvalidSide();
     error AmountZero();
+    error OppositeSideStaked();
     error NotEnoughStake();
     error ZeroAddressToken();
     error InvalidTranches();
@@ -131,6 +132,7 @@ contract StakeEngine is GovernedUpgradeable {
     event SnapshotPeriodSet(uint256 oldPeriod, uint256 newPeriod);
     event NumTranchesSet(uint256 oldTranches, uint256 newTranches);
     event LotsCompacted(uint256 indexed postId, uint8 side, uint256 removed);
+    event SMaxRescanned(uint256 newSMax, uint256 newSMaxPostId);
 
     // ------------------------------------------------------------
     // Constructor / Initializer
@@ -326,6 +328,14 @@ contract StakeEngine is GovernedUpgradeable {
     function stake(uint256 postId, uint8 side, uint256 amount) external nonReentrant {
         if (amount == 0) revert AmountZero();
         if (side > 1) revert InvalidSide();
+
+        // Enforce single-sided positions: reject if user has stake on opposite side
+        PostState storage psCheck = posts[postId];
+        uint8 opposite = 1 - side;
+        uint256 oppIdx = _getLotIndex(psCheck, _msgSender(), opposite);
+        if (oppIdx > 0 && psCheck.sides[opposite].lots[oppIdx - 1].amount > 0) {
+            revert OppositeSideStaked();
+        }
 
         require(ERC20_TOKEN.transferFrom(_msgSender(), address(this), amount), "VSP transfer failed");
 

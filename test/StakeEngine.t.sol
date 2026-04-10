@@ -63,7 +63,9 @@ contract StakeEngineTest is Test {
     /// ------------------------------------------------------------
 
     function testStakeIncreasesTotals() public {
+        vm.prank(alice);
         engine.stake(postA, 0, 100 ether);
+        vm.prank(bob);
         engine.stake(postA, 1, 30 ether);
 
         (uint256 s, uint256 c) = engine.getPostTotals(postA);
@@ -150,7 +152,9 @@ contract StakeEngineTest is Test {
     }
 
     function testLosingSideNeverIncreases() public {
+        vm.prank(alice);
         engine.stake(postA, 0, 100 ether);
+        vm.prank(bob);
         engine.stake(postA, 1, 10 ether);
 
         uint256 supplyBefore = token.totalSupply();
@@ -164,7 +168,9 @@ contract StakeEngineTest is Test {
     }
 
     function testNoGrowthWhenBalanced() public {
+        vm.prank(alice);
         engine.stake(postA, 0, 50 ether);
+        vm.prank(bob);
         engine.stake(postA, 1, 50 ether);
 
         vm.warp(block.timestamp + 3 days);
@@ -204,13 +210,14 @@ contract StakeEngineTest is Test {
     /// ------------------------------------------------------------
 
     function testSnapshotTriggersOnStakeAfterPeriod() public {
+        vm.prank(alice);
         engine.stake(postA, 0, 100 ether);
+        vm.prank(bob);
         engine.stake(postA, 1, 10 ether);
-
         // Advance past snapshot period
         vm.warp(block.timestamp + 2 days);
-
         // This stake triggers a snapshot internally
+        vm.prank(alice);
         engine.stake(postA, 0, 1 ether);
 
         // After snapshot, winning side should have grown
