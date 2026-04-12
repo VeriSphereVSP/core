@@ -53,7 +53,13 @@ contract StakeEngine is GovernedUpgradeable {
     mapping(uint256 => PostState) private posts;
 
     uint256 public sMax;
-    uint256 public sMaxPostId; // Post ID that currently holds sMax
+    uint256 public sMaxPostId; // Post ID that currently holds sMax (= topPosts[0].postId when non-zero)
+
+    struct TopPost { uint256 postId; uint256 total; }
+    TopPost[3] private topPosts; // Sorted descending by total; topPosts[0] is the leader
+
+    uint256 private constant SMAX_DECAY_RATE_RAY = 995e15; // 0.995 — 0.5%/epoch decay
+    uint256 private constant SMAX_DECAY_MAX_EPOCHS = 3650; // cap projection iterations
 
     // Manual reentrancy guard
     uint256 private constant _NOT_ENTERED = 1;
@@ -302,14 +308,14 @@ contract StakeEngine is GovernedUpgradeable {
         }
 
         sideTotal = ps.sides[side].total;
-        uint256 nT = numTranches;
-
         if (sideTotal > 0) {
-            tranche = (lot.weightedPosition * nT) / sideTotal;
-            if (tranche >= nT) tranche = nT - 1;
+            uint256 posShare = (lot.weightedPosition * RAY) / sideTotal;
+            if (posShare > RAY) posShare = RAY;
+            positionWeight = RAY - posShare;
+        } else {
+            positionWeight = RAY;
         }
-
-        positionWeight = nT > 0 ? ((nT - tranche) * RAY) / nT : RAY;
+        tranche = 0;
 
         return (
             projectedAmount,
@@ -681,24 +687,33 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 rBase
     ) internal view returns (uint256 total) {
         if (q.total == 0 || rBase == 0) return q.total;
-
         bool aligned = (supportWins && isSupportSide) ||
             (!supportWins && !isSupportSide);
-
         uint256 T = q.total;
-        uint256 nT = numTranches;
+        uint256 budget = (T * rBase) / RAY;
 
+        // Normalize: totalWeightedStake across all lots
+        uint256 totalWeightedStake = 0;
         for (uint256 i = 0; i < q.lots.length; i++) {
             StakeLot storage lot = q.lots[i];
             if (lot.amount == 0) continue;
+            uint256 posShare = (lot.weightedPosition * RAY) / T;
+            if (posShare > RAY) posShare = RAY;
+            uint256 posWeight = RAY - posShare;
+            totalWeightedStake += (lot.amount * posWeight) / RAY;
+        }
+        if (totalWeightedStake == 0) return q.total;
 
-            uint256 tranche = (lot.weightedPosition * nT) / T;
-            if (tranche >= nT) tranche = nT - 1;
-
-            uint256 positionWeight = ((nT - tranche) * RAY) / nT;
-            uint256 rLot = (rBase * positionWeight) / RAY;
-            uint256 delta = (lot.amount * rLot) / RAY;
-
+        // Distribute budget; accumulate resulting side total
+        total = 0;
+        for (uint256 i = 0; i < q.lots.length; i++) {
+            StakeLot storage lot = q.lots[i];
+            if (lot.amount == 0) continue;
+            uint256 posShare = (lot.weightedPosition * RAY) / T;
+            if (posShare > RAY) posShare = RAY;
+            uint256 posWeight = RAY - posShare;
+            uint256 myWeightedStake = (lot.amount * posWeight) / RAY;
+            uint256 delta = (budget * myWeightedStake) / totalWeightedStake;
             if (aligned) {
                 total += lot.amount + delta;
             } else {
@@ -706,6 +721,7 @@ contract StakeEngine is GovernedUpgradeable {
                 total += lot.amount - loss;
             }
         }
+    
     }
 
     function _projectLotValue(
@@ -715,52 +731,58 @@ contract StakeEngine is GovernedUpgradeable {
     ) internal view returns (uint256) {
         SideQueue storage qs = ps.sides[0];
         SideQueue storage qc = ps.sides[1];
-
         uint256 A = qs.total;
         uint256 D = qc.total;
         uint256 T = A + D;
-
         if (T == 0 || sMax == 0) return lot.amount;
-
         int256 vsNum = int256(2 * A) - int256(T);
         if (vsNum == 0) return lot.amount;
-
         bool supportWins = vsNum > 0;
         bool isSupportSide = lot.side == 0;
         bool aligned = (supportWins && isSupportSide) ||
             (!supportWins && !isSupportSide);
-
         uint256 absVS = uint256(vsNum > 0 ? vsNum : -vsNum);
         uint256 epochsElapsed = currentEpoch - ps.lastSnapshotEpoch;
-
         uint256 projSMax = _projectSMaxDecay(currentEpoch);
         if (projSMax == 0) return lot.amount;
 
         uint256 vRay = (absVS * RAY) / T;
         uint256 participationRay = (T * RAY) / projSMax;
-
+        if (participationRay > RAY) participationRay = RAY;
         uint256 rMin = (ratePolicy.stakeIntRateMinRay() *
             EPOCH_LENGTH *
             epochsElapsed) / YEAR_LENGTH;
         uint256 rMax = (ratePolicy.stakeIntRateMaxRay() *
             EPOCH_LENGTH *
             epochsElapsed) / YEAR_LENGTH;
-
         uint256 rBase = rMin +
             ((rMax - rMin) * vRay * participationRay) /
             (RAY * RAY);
 
-        // Compute lot's tranche from its side total
-        uint256 sideTotal = isSupportSide ? A : D;
-        if (sideTotal == 0) return lot.amount;
+        // Budget to distribute across this side = sideTotal × rBase
+        SideQueue storage mySide = isSupportSide ? qs : qc;
+        uint256 sideTotal = mySide.total;
+        if (sideTotal == 0 || rBase == 0) return lot.amount;
+        uint256 budget = (sideTotal * rBase) / RAY;
 
-        uint256 nT = numTranches;
-        uint256 tranche = (lot.weightedPosition * nT) / sideTotal;
-        if (tranche >= nT) tranche = nT - 1;
+        // Compute totalWeightedStake across all lots on this side (for normalization)
+        uint256 totalWeightedStake = 0;
+        for (uint256 i = 0; i < mySide.lots.length; i++) {
+            StakeLot storage lj = mySide.lots[i];
+            if (lj.amount == 0) continue;
+            uint256 posShare_j = (lj.weightedPosition * RAY) / sideTotal;
+            if (posShare_j > RAY) posShare_j = RAY;
+            uint256 posWeight_j = RAY - posShare_j;
+            totalWeightedStake += (lj.amount * posWeight_j) / RAY;
+        }
+        if (totalWeightedStake == 0) return lot.amount;
 
-        uint256 positionWeight = ((nT - tranche) * RAY) / nT;
-        uint256 rLot = (rBase * positionWeight) / RAY;
-        uint256 delta = (lot.amount * rLot) / RAY;
+        // This lot's share of the budget
+        uint256 posShare = (lot.weightedPosition * RAY) / sideTotal;
+        if (posShare > RAY) posShare = RAY;
+        uint256 posWeight = RAY - posShare;
+        uint256 myWeightedStake = (lot.amount * posWeight) / RAY;
+        uint256 delta = (budget * myWeightedStake) / totalWeightedStake;
 
         if (aligned) {
             return lot.amount + delta;
@@ -768,6 +790,7 @@ contract StakeEngine is GovernedUpgradeable {
             uint256 loss = delta > lot.amount ? lot.amount : delta;
             return lot.amount - loss;
         }
+    
     }
 
     // ------------------------------------------------------------
@@ -778,50 +801,139 @@ contract StakeEngine is GovernedUpgradeable {
         return block.timestamp / EPOCH_LENGTH;
     }
 
-    /// @dev Update sMax after a post's total changes.
-    ///      If the modified post is now the largest, it becomes the leader.
-    ///      If the leader just got smaller, rescan to find the new leader.
+    /// @dev Update sMax after a post's total changes. Maintains topPosts[0..2]
+    ///      sorted descending. On leader shrink, promotes #2 if possible; otherwise
+    ///      decays from current sMax. O(1) per call.
     function _updateSMax(uint256 postId, uint256 postTotal) internal {
-        if (postTotal >= sMax) {
-            // This post is the new leader (or tied for it)
-            sMax = postTotal;
-            sMaxPostId = postId;
-        } else if (postId == sMaxPostId) {
-            // The current leader just got smaller — need to rescan.
-            // For gas efficiency, we accept the current post's new total
-            // as sMax and let future stakes correct upward if there's a
-            // larger post. This is O(1) instead of O(N).
-            // Governance can call rescanSMax() if needed.
-            sMax = postTotal;
-            // sMaxPostId stays the same — it's still the best we know
+        // Find if postId is already tracked and at what index
+        uint256 slot = type(uint256).max;
+        for (uint256 i = 0; i < 3; i++) {
+            if (topPosts[i].postId == postId && topPosts[i].total > 0) { slot = i; break; }
         }
-        // Otherwise: some other post changed but isn't the leader — no update needed
-    }
 
-    /// @notice Governance: force a rescan of sMax across known posts.
-    ///         Call this if sMax appears incorrect (e.g., after griefing recovery).
-    ///         Caller provides post IDs to check (on-chain enumeration is too expensive).
-    function rescanSMax(uint256[] calldata postIds) external onlyGovernance {
-        uint256 best = 0;
-        uint256 bestId = 0;
-        for (uint256 i = 0; i < postIds.length; i++) {
-            PostState storage ps = posts[postIds[i]];
-            uint256 total = ps.sides[0].total + ps.sides[1].total;
-            if (total > best) {
-                best = total;
-                bestId = postIds[i];
+        if (slot != type(uint256).max) {
+            // Post is tracked: update its total
+            topPosts[slot].total = postTotal;
+            // If it shrank below a neighbor, bubble down; if it grew, bubble up
+            while (slot > 0 && topPosts[slot].total > topPosts[slot - 1].total) {
+                TopPost memory tmp = topPosts[slot];
+                topPosts[slot] = topPosts[slot - 1];
+                topPosts[slot - 1] = tmp;
+                slot--;
+            }
+            while (slot < 2 && topPosts[slot].total < topPosts[slot + 1].total) {
+                TopPost memory tmp = topPosts[slot];
+                topPosts[slot] = topPosts[slot + 1];
+                topPosts[slot + 1] = tmp;
+                slot++;
+            }
+        } else {
+            // Post not tracked: try to insert if larger than the smallest tracked
+            // Find insertion point (topPosts is sorted desc)
+            for (uint256 i = 0; i < 3; i++) {
+                if (postTotal > topPosts[i].total) {
+                    // Shift right and insert
+                    for (uint256 j = 2; j > i; j--) { topPosts[j] = topPosts[j - 1]; }
+                    topPosts[i] = TopPost(postId, postTotal);
+                    break;
+                }
             }
         }
-        sMax = best;
-        sMaxPostId = bestId;
-        emit SMaxRescanned(best, bestId);
+
+        // Evict stale or empty entries that crept in: zero out zero-total slots
+        for (uint256 i = 0; i < 3; i++) {
+            if (topPosts[i].total == 0) topPosts[i] = TopPost(0, 0);
+        }
+
+        // Update sMax from top-1. If top-1 is 0, decay from previous sMax instead.
+        uint256 leaderTotal = topPosts[0].total;
+        uint256 currentEpoch = _currentEpoch();
+
+        if (leaderTotal > 0) {
+            if (leaderTotal >= sMax) {
+                // Leader at least as large as previous sMax: lock in, reset decay clock
+                sMax = leaderTotal;
+                sMaxLastUpdatedEpoch = currentEpoch;
+            } else {
+                // Leader is below previous sMax: apply decay from previous sMax,
+                // but never below leaderTotal (which is our firm floor)
+                uint256 decayed = _applySMaxDecay(currentEpoch);
+                sMax = decayed > leaderTotal ? decayed : leaderTotal;
+                // sMaxLastUpdatedEpoch already updated inside _applySMaxDecay
+            }
+            sMaxPostId = topPosts[0].postId;
+        } else {
+            // No tracked leader: decay pure form
+            sMax = _applySMaxDecay(currentEpoch);
+            // Keep sMaxPostId as informational; it may now be stale
+        }
     }
 
-    /// @dev View-only sMax — now live, no projection needed.
+    /// @dev Apply exponential decay to sMax based on epochs since last update.
+    ///      Writes sMaxLastUpdatedEpoch. Returns new sMax value.
+    function _applySMaxDecay(uint256 currentEpoch) internal returns (uint256) {
+        if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) {
+            sMaxLastUpdatedEpoch = currentEpoch;
+            return sMax;
+        }
+        uint256 elapsed = currentEpoch - sMaxLastUpdatedEpoch;
+        if (elapsed > SMAX_DECAY_MAX_EPOCHS) elapsed = SMAX_DECAY_MAX_EPOCHS;
+        uint256 decayed = sMax;
+        for (uint256 i = 0; i < elapsed; i++) {
+            decayed = (decayed * SMAX_DECAY_RATE_RAY) / RAY;
+            if (decayed == 0) break;
+        }
+        sMax = decayed;
+        sMaxLastUpdatedEpoch = currentEpoch;
+        return decayed;
+    }
+
+    /// @notice Governance: force a rebuild of the top-3 sMax tracker.
+    ///         Use when sMax diverges from reality (upgrade state, griefing recovery).
+    ///         Scans provided post IDs and populates topPosts[0..2] with the largest.
+    function rescanSMax(uint256[] calldata postIds) external onlyGovernance {
+        // Reset top-3
+        for (uint256 i = 0; i < 3; i++) topPosts[i] = TopPost(0, 0);
+        // Insert each post via the standard update path so sort is maintained
+        for (uint256 i = 0; i < postIds.length; i++) {
+            uint256 pid = postIds[i];
+            // no nextPostId check — PostState.sides[].lots.length handles unknown pids
+            PostState storage ps = posts[pid];
+            uint256 total = ps.sides[0].total + ps.sides[1].total;
+            if (total == 0) continue;
+            _updateSMax(pid, total);
+        }
+        emit SMaxRescanned(topPosts[0].total, topPosts[0].postId);
+    }
+
+    /// @notice View the current top-3 posts by total stake (for off-chain monitoring).
+    function getTopPosts() external view returns (
+        uint256 p0, uint256 t0,
+        uint256 p1, uint256 t1,
+        uint256 p2, uint256 t2
+    ) {
+        return (
+            topPosts[0].postId, topPosts[0].total,
+            topPosts[1].postId, topPosts[1].total,
+            topPosts[2].postId, topPosts[2].total
+        );
+    }
+
+    /// @dev View-only sMax projection — applies decay from last update without writing.
+    ///      Result is never below topPosts[0].total (firm floor from tracked leader).
     function _projectSMaxDecay(
-        uint256 /* currentEpoch */
+        uint256 currentEpoch
     ) internal view returns (uint256) {
-        return sMax;
+        if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) return sMax;
+        uint256 elapsed = currentEpoch - sMaxLastUpdatedEpoch;
+        if (elapsed > SMAX_DECAY_MAX_EPOCHS) elapsed = SMAX_DECAY_MAX_EPOCHS;
+        uint256 decayed = sMax;
+        for (uint256 i = 0; i < elapsed; i++) {
+            decayed = (decayed * SMAX_DECAY_RATE_RAY) / RAY;
+            if (decayed == 0) break;
+        }
+        uint256 leader = topPosts[0].total;
+        return decayed > leader ? decayed : leader;
     }
 
     function _recomputeSideTotal(SideQueue storage q) internal {
@@ -832,5 +944,5 @@ contract StakeEngine is GovernedUpgradeable {
         q.total = total;
     }
 
-    uint256[42] private __gap; // reduced by 2: _reentrancyStatus + sMaxPostId
+    uint256[36] private __gap; // reduced by 8: _reentrancyStatus + sMaxPostId + topPosts[3] (6 slots)
 }
