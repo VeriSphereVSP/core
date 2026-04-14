@@ -520,32 +520,33 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 rBase
     ) internal returns (uint256 minted, uint256 burned) {
         if (q.total == 0 || rBase == 0 || sMax == 0) return (0, 0);
-
         bool aligned = (supportWins && isSupportSide) ||
             (!supportWins && !isSupportSide);
-
         uint256 T = q.total;
-        uint256 nT = numTranches;
+        uint256 budget = (T * rBase) / RAY;
 
+        // Compute totalWeightedStake (normalization denominator)
+        uint256 totalWeightedStake = 0;
         for (uint256 i = 0; i < q.lots.length; i++) {
             StakeLot storage lot = q.lots[i];
             if (lot.amount == 0) continue;
+            uint256 posShare = (lot.weightedPosition * RAY) / T;
+            if (posShare > RAY) posShare = RAY;
+            uint256 posWeight = RAY - posShare;
+            totalWeightedStake += (lot.amount * posWeight) / RAY;
+        }
+        if (totalWeightedStake == 0) return (0, 0);
 
-            // Determine which tranche this lot falls in based on position
-            // Tranche 0 = earliest (highest reward), tranche nT-1 = latest
-            uint256 tranche = (lot.weightedPosition * nT) / T;
-            if (tranche >= nT) tranche = nT - 1;
-
-            // Position weight: tranche 0 gets weight nT/nT = 1.0,
-            // tranche nT-1 gets weight 1/nT
-            uint256 positionWeight = ((nT - tranche) * RAY) / nT;
-
-            // Effective rate for this lot
-            uint256 rLot = (rBase * positionWeight) / RAY;
-
-            uint256 delta = (lot.amount * rLot) / RAY;
+        // Distribute budget proportional to (amount × positionWeight) / totalWeightedStake
+        for (uint256 i = 0; i < q.lots.length; i++) {
+            StakeLot storage lot = q.lots[i];
+            if (lot.amount == 0) continue;
+            uint256 posShare = (lot.weightedPosition * RAY) / T;
+            if (posShare > RAY) posShare = RAY;
+            uint256 posWeight = RAY - posShare;
+            uint256 myWeightedStake = (lot.amount * posWeight) / RAY;
+            uint256 delta = (budget * myWeightedStake) / totalWeightedStake;
             if (delta == 0) continue;
-
             if (aligned) {
                 lot.amount += delta;
                 minted += delta;
@@ -555,6 +556,11 @@ contract StakeEngine is GovernedUpgradeable {
                 burned += loss;
             }
         }
+        q.total = 0;
+        for (uint256 i = 0; i < q.lots.length; i++) {
+            q.total += q.lots[i].amount;
+        }
+    
     }
 
     // ------------------------------------------------------------
