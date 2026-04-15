@@ -8,37 +8,48 @@ Goal:
 
 ---
 
-## A. Keeper / Epoch Caller Griefing
+## A. Keeper / Snapshot Caller Griefing
 
-### A.1 “No one updates epochs” (liveness failure)
+### A.1 "No one updates posts" (liveness failure)
 **Attack**
-- No one calls `StakeEngine.updatePost(postId)`, so lots never grow/decay and the economic game stalls.
+- No one calls `StakeEngine.updatePost(postId)`, so snapshots never run and the economic game stalls for that post.
 
 **Mitigations**
-- Backend keepers that periodically update popular posts.
-- UI-driven updates: frontends call `updatePost` before stake/withdraw.
+- Backend keepers periodically update popular posts.
+- UI-driven updates: frontends call `updatePost` (or rely on stake/withdraw triggers, which call `_maybeSnapshot` internally) before showing balances.
+- View functions (`getPostTotals`, `getUserStake`, `getUserLotInfo`) project unrealized gains/losses without writing state, so reads are always current even if no snapshot has run.
 - Optional on-chain incentive (future): pay the caller a small fee.
 
 ---
 
-### A.2 “Excessive updating” (gas grief)
+### A.2 "Excessive updating" (gas grief)
 **Attack**
-- An attacker repeatedly calls `updatePost` to waste gas.
+- An attacker repeatedly calls `updatePost` to waste gas and spam events.
 
 **Mitigation**
-- `updatePost` should be cheap when called multiple times in the same epoch (early return).
+- `_forceSnapshot` early-returns when `currentEpoch <= lastSnapshotEpoch`, so repeated calls within the same epoch are cheap (only a small read + early return). The attacker still pays gas for the call but cannot trigger work.
+- `_maybeSnapshot` (called from stake/withdraw paths) only triggers a full snapshot when `snapshotPeriod` worth of epochs have elapsed.
 
 ---
 
 ## B. Stake Splitting / Queue Gaming
 
 ### B.1 Split stake into many lots to improve position weight
+**Attack (intent)**
+- Stake 1 token 100 times instead of 100 once, hoping to occupy multiple early positions.
+
+**Mitigation (current implementation)**
+- The StakeEngine consolidates: each user holds **at most one lot per (post, side)**. Repeated `stake()` calls by the same user on the same side merge into the existing lot. The lot's `weightedPosition` is updated as the stake-weighted average of the prior position and the new entry position.
+- This prevents the splitting attack at the contract level. The user's effective position cannot be better than a single weighted-average position. Adding stake later actually drags the average toward the back of the queue.
+
+### B.2 Sybil splitting across wallets
 **Attack**
-- Stake 1 token 100 times instead of 100 once.
+- A user spreads stake across N wallets to occupy N distinct early lots.
 
 **Mitigations**
-- Ensure weighting is robust to splitting (document if not).
-- Future: per-staker aggregation or minimum lot size.
+- Application-layer sybil resistance (optional KYC, web-of-trust badges) where appropriate.
+- The economic incentive is bounded by the size of the per-side budget; N small lots collectively earn the same total as one consolidated stake of equal size on the same side, modulo the position-weight curve. The attack chiefly improves the *position* rather than the budget.
+- Future hardening: per-staker aggregation across wallets (requires identity), or minimum lot size to raise the per-wallet cost.
 
 ---
 
@@ -46,50 +57,101 @@ Goal:
 
 ### C.1 Many incoming links to amplify a claim
 **Attack**
-- Create hundreds of ICs linked into a DC to amplify effectiveVS.
+- Create hundreds of intermediate claims linked into a target claim to amplify its effective VS.
 
 **Mitigations**
-- Normalize contributions so effectiveVS stays in [-1,1].
-- Require stake on links so spamming has a cost.
-
----
+- Stake-weighted contribution distribution (Section 4.4 of the whitepaper, "Conservation of Influence"): a parent's mass is divided across all its outgoing links, so creating more links from one parent dilutes each link's share rather than multiplying influence.
+- Posting fees on every claim and link impose a non-trivial cost per node.
+- Stake on the link itself is required to make it active; the activity threshold gates spam.
+- **Bounded fan-in:** the ScoreEngine processes at most `maxIncomingEdges` per claim (default 64, governance-configurable). Edges beyond the cap contribute zero. This bounds gas regardless of how many links an attacker creates.
+- The credibility gate ensures discredited parents and challenged links contribute nothing.
+- Effective VS is clamped to `[-1, +1]`.
 
 ### C.2 Deep multi-hop amplification chain
 **Attack**
-- Build deep chains A→B→C→... to try to “boost” far downstream.
+- Build deep chains A→B→C→... to try to "boost" far downstream.
 
 **Mitigations**
-- Bounded combination at each hop; compute on DAG order.
-- Cap recursion depth or compute iteratively with memoization (implementation detail).
+- Stake-weighted distribution attenuates each hop: a parent's mass is bounded by `parentVS × parentTotalStake`, and the share that flows through any one outgoing link is at most `linkStake / sumOutgoingLinkStake`.
+- The credibility gate truncates chains at any node with non-positive effective VS.
+- The ScoreEngine's `MAX_DEPTH = 32` hard cap returns zero from any branch deeper than 32 hops.
+- The `maxOutgoingLinks` cap (default 64) bounds the share-denominator computation per parent; combined with `maxIncomingEdges`, total edge work per `effectiveVSRay` call is bounded.
+
+### C.3 Cycle exploitation
+**Attack**
+- Create a cycle (A links to B, B links to A) and attempt to inflate one or both via mutual reinforcement.
+
+**Mitigations**
+- Cycle detection at compute time: when the ScoreEngine recurses, any post already on the recursion stack contributes zero for the cycled path. A claim cannot influence its own VS through any chain of links.
+- Cycles are not enforced absent at the storage layer (`LinkGraph` permits them); safety is entirely at the ScoreEngine level.
+- The credibility gate further stabilizes cycles by silencing any leg whose VS is non-positive.
 
 ---
 
-## D. Withdrawal / Epoch Timing Attacks
+## D. Withdrawal / Snapshot Timing Attacks
 
-### D.1 Stake right before update, withdraw right after
+### D.1 Stake right before snapshot, withdraw right after
 **Attack**
 - Attempt to capture reward with minimal exposure.
 
 **Mitigation**
-- Reward is proportional to elapsed time; very short windows yield tiny deltas.
+- Per-snapshot delta is proportional to elapsed time and to `(amount × positionWeight)`. A new lot enters at the back of the queue (`weightedPosition = sideTotal` at entry), so its `posWeight = 1 - (sideTotal / sideTotal) = 0` immediately after staking. Such a lot earns ~0 from its first snapshot.
+- Snapshots run at most once per `snapshotPeriod`; very short windows yield no incremental rewards.
+
+### D.2 Withdraw immediately before a losing snapshot
+**Attack**
+- A user on the losing side withdraws right before a snapshot to avoid the burn.
+
+**Mitigation**
+- The withdraw path calls `_maybeSnapshot` first, which forces a snapshot if the snapshot period has elapsed. The user thus realizes their losses up to the most recent snapshot before being able to withdraw what remains.
+- Between snapshots, view-projected balances are smaller for losing positions, but the actual withdrawable amount is the *stored* lot amount; this is conservative for the protocol (the user can withdraw projected losses they have not yet realized, but they also forfeit any further potential growth).
 
 ---
 
 ## E. Authority / Token Role Misconfiguration
 
 ### E.1 StakeEngine cannot mint/burn because roles missing
+**Attack / failure mode**
+- Snapshots that should mint to winners or burn from losers will revert, freezing post evolution.
+
 **Mitigation**
-- Deployment scripts must set Authority roles:
-  - StakeEngine is minter and burner.
+- Deployment scripts must set Authority roles before any user staking:
+  - StakeEngine is granted both minter and burner roles.
+  - PostRegistry is granted the burner role for posting fee burns.
+- Integration tests should assert role assignment at deploy time.
 
 ---
 
 ## F. Gas / DoS via Large Arrays
 
-### F.1 Many lots make `updatePost` expensive
+### F.1 Many lots make snapshots expensive
 **Attack**
-- Spam tiny lots so update loops over huge arrays.
+- Spam tiny lots so snapshot loops over huge arrays.
 
 **Mitigations**
-- MVP accepts constraint; keepers focus on important posts.
-- Future: aggregation, partial settlement, batching.
+- Consolidation (B.1): one lot per user per (post, side) caps the lot count at the number of distinct stakers per side.
+- Sybil-distributed stakes still produce many lots, but each lot represents real economic exposure — the attacker pays gas to stake and risks the stake itself.
+- Governance-controlled `compactLots(postId, side)` removes burned-out (zero-amount) lots via swap-and-pop, reducing snapshot gas on long-lived posts.
+- Future: aggregation, partial settlement, or batching.
+
+### F.2 High-fan-in claims make `effectiveVSRay` expensive
+**Attack**
+- Create many incoming evidence links to a claim to make every score read costly.
+
+**Mitigations**
+- Bounded fan-in: `maxIncomingEdges` (default 64) and `maxOutgoingLinks` (default 64) cap the work per `effectiveVSRay` call. Both are governance-configurable.
+- Edges beyond the cap are silently skipped in insertion order.
+
+---
+
+## G. sMax Manipulation
+
+### G.1 Pump-and-decay against sMax
+**Attack**
+- An attacker stakes massively on a post to push sMax up, then withdraws, leaving smaller posts with a large sMax denominator and therefore low participation factors.
+
+**Mitigations**
+- `sMax` decays at 0.5% per epoch when the leader's total is below the previous `sMax` (capped at 3650 epochs of decay per refresh). This bounds the duration of suppression after a pump.
+- The decay floor is the current leader's total, so `sMax` cannot drop below the largest active post.
+- The top-3 tracker promotes the next-largest post as leader if the previous leader withdraws, mitigating cliff effects.
+- Governance can call `rescanSMax` to rebuild the tracker if state diverges from reality (e.g., after upgrades or extreme griefing).
