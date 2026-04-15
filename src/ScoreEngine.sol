@@ -220,6 +220,30 @@ contract ScoreEngine is GovernedUpgradeable {
         return contrib;
     }
 
+    /// @notice Public view: computes the signed contribution of one link to its target claim's VS.
+    /// @param targetClaimPostId The claim receiving the contribution
+    /// @param linkPostId The link whose contribution to compute
+    /// @return contrib In RAY units. Positive = link pushes target VS up, negative = pushes down.
+    ///                 Returns 0 if the link does not target the given claim or if any guard
+    ///                 (inactivity, non-positive parent VS, non-positive link VS) fails.
+    /// @dev Same math used internally when computing target's effective VS. Safe to call
+    ///      off-chain; iterates over incoming edges once.
+    function getEdgeContribution(uint256 targetClaimPostId, uint256 linkPostId)
+        external
+        view
+        returns (int256 contrib)
+    {
+        LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(targetClaimPostId);
+        uint256 fee = feePolicy.postingFeeVSP();
+        for (uint256 i = 0; i < inc.length; i++) {
+            if (inc[i].linkPostId == linkPostId) {
+                uint256[] memory computing = new uint256[](MAX_DEPTH + 1);
+                return _computeEdgeContribution(inc[i], computing, 0, fee);
+            }
+        }
+        return 0;
+    }
+
     function _totalStake(uint256 postId) internal view returns (uint256) {
         (uint256 s, uint256 d) = stake.getPostTotals(postId);
         return s + d;

@@ -105,5 +105,16 @@ contract ProtocolViews is GovernedUpgradeable {
         return (l.fromPostId, l.toPostId, l.isChallenge);
     }
 
-    uint256[50] private __gap;
+    /// @notice Signed contribution of `linkPostId` to `targetClaimPostId`'s effective VS.
+    /// @dev Returns 0 if the link doesn't target the given claim or if any guard fails
+    ///      (parent inactive, parent VS ≤ 0, link VS ≤ 0, etc.). In RAY units.
+    function getEdgeContribution(uint256 targetClaimPostId, uint256 linkPostId)
+        external
+        view
+        returns (int256)
+    {
+        return score.getEdgeContribution(targetClaimPostId, linkPostId);
+    }
+
+        uint256[50] private __gap;
 }
