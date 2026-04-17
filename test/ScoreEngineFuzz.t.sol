@@ -17,6 +17,11 @@ import "./mocks/MockClaimActivityPolicy.sol";
 /// @title ScoreEngine Fuzz Tests
 /// @notice Property-based tests for VS computation, link propagation,
 ///         cycle handling, and the credibility gate.
+///
+/// NOTE: StakeEngine v2 enforces single-sided positions (a user cannot
+///       stake both support and challenge on the same post). All helpers
+///       use a dedicated `challenger` address for the challenge side and
+///       `address(this)` (or other addresses) for the support side.
 contract ScoreEngineFuzzTest is Test {
     PostRegistry registry;
     StakeEngine stakeEng;
@@ -24,6 +29,11 @@ contract ScoreEngineFuzzTest is Test {
     ScoreEngine score;
 
     MockVSP vsp;
+
+    /// @dev Dedicated address for challenge-side stakes so that
+    ///      _createAndStake can place both sides without hitting
+    ///      OppositeSideStaked().
+    address challenger = address(0xCBA1);
 
     uint256 constant FEE = 50; // posting fee in mock
 
@@ -87,16 +97,26 @@ contract ScoreEngineFuzzTest is Test {
         graph.setRegistry(address(registry));
         registry.setLinkGraph(address(graph));
 
+        // Fund address(this) — used for support side + claim creation
         vsp.mint(address(this), 1e36);
         vsp.mint(address(registry), 1e36);
         vsp.approve(address(stakeEng), type(uint256).max);
         vsp.approve(address(registry), type(uint256).max);
+
+        // Fund challenger — used for challenge side
+        vsp.mint(challenger, 1e36);
+        vm.prank(challenger);
+        vsp.approve(address(stakeEng), type(uint256).max);
     }
 
     // ────────────────────────────────────────────────────────────
     // Helpers
     // ────────────────────────────────────────────────────────────
 
+    /// @dev Creates a claim (as address(this)) and stakes both sides.
+    ///      Support is staked by address(this); challenge by `challenger`.
+    ///      This avoids OppositeSideStaked() since each address stakes
+    ///      only one side.
     function _createAndStake(
         string memory text,
         uint256 support,
@@ -104,7 +124,10 @@ contract ScoreEngineFuzzTest is Test {
     ) internal returns (uint256 postId) {
         postId = registry.createClaim(text);
         if (support > 0) stakeEng.stake(postId, 0, support);
-        if (challenge > 0) stakeEng.stake(postId, 1, challenge);
+        if (challenge > 0) {
+            vm.prank(challenger);
+            stakeEng.stake(postId, 1, challenge);
+        }
     }
 
     // ────────────────────────────────────────────────────────────
@@ -243,7 +266,9 @@ contract ScoreEngineFuzzTest is Test {
         uint256 child = _createAndStake("good child", cSup, 0);
 
         // Link: parent supports child, but link has negative VS
+        // (challenger stakes challenge on the link)
         uint256 link = registry.createLink(parent, child, false);
+        vm.prank(challenger);
         stakeEng.stake(link, 1, FEE * 2); // challenge the link → negative link VS
 
         // Child's effective VS should equal its base VS (link blocked)
