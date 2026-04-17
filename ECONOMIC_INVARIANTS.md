@@ -1,4 +1,4 @@
-# VeriSphere Core — Task 3.5: Economic Invariants
+# VeriSphere Core — Economic Invariants
 
 This document defines the **economic invariants** and safety properties the VeriSphere core protocol must maintain.
 These invariants are intended to be **testable** (unit/fuzz/property tests) and **auditable**.
@@ -22,7 +22,7 @@ the StakeEngine's VSP balance equals the sum of all lots across all posts, i.e. 
 **Rationale**
 - `stake()` transfers VSP from user → StakeEngine and increases lot totals.
 - `withdraw()` transfers VSP from StakeEngine → user and decreases lot totals.
-- Snapshots (triggered by `_maybeSnapshot` on stake/withdraw, or explicitly via `updatePost`) change totals via growth/decay:
+- `updatePost()` changes totals via epoch growth/decay:
   - winners gain stake → StakeEngine **mints** delta to itself
   - losers lose stake → StakeEngine **burns** delta from itself
 
@@ -33,56 +33,68 @@ the StakeEngine's VSP balance equals the sum of all lots across all posts, i.e. 
 ---
 
 ### I.2 Limited liability (no lot can lose more than its current amount)
-For every lot `L`, during a snapshot:
+For every lot `L`, during an epoch update:
 - If the lot is on the losing side, `loss = min(delta, L.amount)`.
 - Therefore `L.amount_next >= 0`, and a lot cannot underflow.
 
 ---
 
-### I.3 Snapshot cannot mint/burn without stake or pressure
-A snapshot is economically neutral (no mint/burn, lot amounts unchanged) when any of the following hold:
-- `T == 0` (no stake on the post)
-- `sMax == 0` (global reference uninitialized)
-- `2A == T` (perfectly balanced support and challenge)
-- `epochsElapsed == 0` (no time since last snapshot)
+### I.3 Epoch settlement cannot mint/burn without stake
+If `T == 0` then no minting or burning occurs and lot amounts remain unchanged.
 
-In all such cases the snapshot only updates `lastSnapshotEpoch` and returns.
+More generally:
+- If epoch update is economically neutral (e.g., `VS == 0` or below threshold), no mint/burn occurs.
 
 ---
 
-### I.4 sMax dynamics
-`sMax` is **not** strictly monotonic. It is tracked via a top-3 list of `(postId, total)` and behaves as follows:
-
-- When the leading post grows past the previous `sMax`, `sMax` is raised to that new value and the decay clock is reset.
-- When the leading post shrinks below the previous `sMax`, exponential decay is applied at `0.5%` per epoch (`SMAX_DECAY_RATE_RAY = 995e15`), capped at `SMAX_DECAY_MAX_EPOCHS = 3650` per refresh. The result is then floored at the current leader's total.
-- When no leader is tracked, decay applies in pure form (no floor).
-- Governance can call `rescanSMax(postIds)` to rebuild the top-3 tracker after upgrades or recovery.
+### I.4 sMax decays and is bounded
+`sMax` decays at 0.5% per epoch when the leading post's total stake is
+below the previous `sMax`. It is floored at the current leader's total
+and raised immediately when a post exceeds it.
 
 **Safety statement**
-- The decay-with-floor design cannot create free minting: rates are always derived from `participation = T / sMax`, and a smaller `sMax` only makes participation (and therefore rates) larger for active posts. The total budget per snapshot is still bounded by `rMax × T`.
-- Decay reduces persistent suppression of new posts after a historical peak fades.
+- Decay prevents historical peaks from permanently suppressing
+  participation factors on future posts.
+- sMax >= leaderTotal at all times (after update), so participation
+  factors remain <= 1.0 in steady state.
+
+---
+
+### I.5 Single-sided positions
+A user cannot hold stake on both sides of the same post simultaneously.
+`stake()` reverts with `OppositeSideStaked` if the user already has a
+non-zero lot on the opposite side.
+
+---
+
+### I.6 Position rescale invariant
+After every snapshot, for each side of each post:
+- `max(lot.weightedPosition) < sideTotal` for all lots with `amount > 0`.
+- This ensures every active lot has `positionWeight > 0` going into the
+  next epoch.
 
 ---
 
 ## II. Score Semantics Invariants (ScoreEngine)
 
 ### II.1 BaseVS range is bounded
-For any post `p`:
-- `baseVSRay(p) ∈ [-1e18, +1e18]`
-- If `T == 0`, `baseVSRay(p) == 0`
+For any claim `c`:
+- `baseVSRay(c) ∈ [-1e18, +1e18]`
+- If `T == 0`, `baseVSRay(c) == 0`
 
 ---
 
-### II.2 EffectiveVS is bounded on any directed graph
+### II.2 EffectiveVS is bounded and well-defined on cyclic graphs
 For any claim `c`:
-- `effectiveVSRay(c) ∈ [-1e18, +1e18]` (clamped explicitly in `_clampRay`)
+- `effectiveVSRay(c) ∈ [-1e18, +1e18]`
 
-The `LinkGraph` permits cycles. Boundedness and termination are guaranteed not by graph acyclicity but by the ScoreEngine's computation strategy:
-
-1. **Recursion-stack cycle break.** When computing `effectiveVS` for post `X`, `X` is pushed onto a stack threaded through recursive calls. Before recursing into a parent, the engine scans the stack; if the parent is already present, that parent's contribution is `0` for the current path. `X` cannot influence its own VS through any cycle.
-2. **Depth cap.** A hard `MAX_DEPTH = 32` returns `0` from any branch deeper than the cap.
-3. **Bounded fan-in.** At most `maxIncomingEdges` incoming links per claim and `maxOutgoingLinks` per parent are processed. Defaults are 64; both are governance-configurable. Edges beyond the limit are silently skipped in insertion order.
-4. **Credibility gate.** Parents with `effectiveVS ≤ 0` and links with `baseVS ≤ 0` contribute zero, preventing sign-inversion exploits and cycle oscillation.
+The effective VS computation is well-defined on any directed graph
+(including cycles) because:
+- Stack-based cycle detection returns 0 for any post already on the
+  computation stack, preventing infinite recursion.
+- A hard depth limit of 32 truncates contributions regardless.
+- The credibility gate (parent VS ≤ 0 → contribution 0) further
+  stabilizes feedback loops.
 
 This is the key invariant preventing "multi-hop amplification" from exceeding ±1.
 
@@ -97,27 +109,22 @@ Support/challenge symmetry holds:
 ---
 
 ### II.4 Link stake meaning is consistent under sign
-A link post is itself a staked object. Its base VS sign determines whether that link is currently functioning as evidence at all:
-- A link with `baseVS > 0` propagates its parent's mass according to its `isChallenge` flag.
-- A link with `baseVS ≤ 0` is silenced by the credibility gate and contributes nothing, regardless of `isChallenge`.
-
-The `isChallenge` flag is structural (set at link creation) and cannot flip; community sentiment expressed via stake on the link controls only whether the link is active.
-
----
-
-### II.5 Off-chain score reproduction must mirror on-chain caps
-Any off-chain indexer or analytics layer that computes `effectiveVS` independently must apply the same `maxIncomingEdges` and `maxOutgoingLinks` limits, in the same insertion order as the on-chain `LinkGraph` arrays, to remain consistent with the on-chain value. Otherwise, off-chain values will diverge from the on-chain `effectiveVSRay()` view for high-fan-in claims.
+A link post is itself a staked object. Its VS sign determines whether that link is currently functioning as "supporting" or "challenging"
+the dependent claim, consistent with the symmetric rule-set:
+- If link VS flips sign, its effect on the dependent claim flips accordingly.
 
 ---
 
 ## III. Graph Safety Invariants (LinkGraph)
 
-### III.1 Self-loops and exact duplicates are rejected
-- `LinkGraph.addEdge` reverts with `SelfLoop` when `fromClaimPostId == toClaimPostId`.
-- An edge keyed by `keccak256(from, to, isChallenge)` may exist only once; re-creation reverts with `DuplicateEdge`. Note that this still permits two edges between the same pair of claims if they have different `isChallenge` values (e.g., A supports B and A challenges B coexist as distinct edges and distinct posts).
+### III.1 Link graph permits cycles; score computation is cycle-safe
+The LinkGraph contract does not enforce acyclicity. Cycles (e.g.,
+A challenges B, B challenges A) are permitted at write time.
 
-### III.2 Cycles are permitted at the storage layer
-The graph may contain cycles. There is no DFS or ancestor check at write time. All safety related to cyclic propagation is the responsibility of the ScoreEngine (see II.2).
+Cycle safety is enforced at read time by the ScoreEngine:
+- Stack-based detection returns 0 for cycled posts.
+- Depth limit of 32 prevents unbounded recursion.
+- Credibility gate silences posts with VS ≤ 0.
 
 ---
 
@@ -127,33 +134,22 @@ The graph may contain cycles. There is no DFS or ancestor check at write time. A
 Any address can call `updatePost(postId)`.
 
 **Safety requirements**
-- Calling `updatePost` cannot:
-  - mint without corresponding lot growth
-  - burn other users beyond their lot stake
+- Calling updatePost should not allow:
+  - minting without corresponding lot growth
+  - burning other users beyond their lot stake
 - The caller only pays gas; they do not gain special economic privilege.
-- Repeated calls within the same snapshot period are cheap (early return when no time has elapsed).
-
-### IV.2 `compactLots` is governance-only and economically neutral
-- `compactLots(postId, side)` may be called only by governance.
-- It removes zero-amount "ghost" lots via swap-and-pop.
-- It does not change any non-zero lot amount, side total, or sMax tracking.
-
-### IV.3 `rescanSMax` is governance-only
-- `rescanSMax(postIds)` rebuilds the top-3 tracker from a provided set of post IDs.
-- It does not mint, burn, or alter any stake amounts; it only changes the `topPosts` array and `sMax`.
 
 ---
 
 ## V. Minimal Test Coverage Requirements (for signoff)
 
-To consider Task 3.5 complete, automated tests should cover:
+Automated tests cover:
 
-1. Balance conservation: `balanceOf(stakeEngine) == Σ(A+D)` across stake/withdraw/snapshot sequences.
+1. Balance conservation: `balanceOf(stakeEngine) == Σ(A+D)` across stake/withdraw/update sequences.
 2. Limited liability: burning never exceeds stake; no underflow.
-3. BaseVS and EffectiveVS remain in bounds in fuzz tests over random stake distributions and arbitrary directed link graphs (including cycles).
+3. BaseVS and EffectiveVS remain in bounds in fuzz tests (random stake/link graphs).
 4. Multi-hop influences propagate (upstream changes affect downstream) and remain bounded.
-5. Cycle handling: a cycle in the link graph does not cause infinite recursion or unbounded gas; the cycled contribution is zero for that path while non-cycled paths compute normally.
-6. Fan-in caps: a claim with more than `maxIncomingEdges` incoming links produces the same value as one truncated to the limit.
-7. Single-sided position enforcement: staking on the opposite side after an existing position reverts with `OppositeSideStaked`.
-8. Lot consolidation: repeated stakes by the same user on the same (post, side) merge into one lot with stake-weighted position averaging; the lot count for that user does not grow.
-9. sMax decay-with-floor: after the leader shrinks, sMax decays at the documented rate but never falls below the current leader's total.
+5. Cycle handling: mutual challenges do not revert; VS remains bounded.
+6. Single-sided positions: staking opposite side reverts.
+7. Position rescale: after snapshot, all positions < sideTotal.
+8. View projections match materialized snapshot values (within rounding tolerance).

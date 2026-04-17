@@ -14,9 +14,9 @@ This specification is **descriptive, not normative**: smart contracts remain the
 The following contracts define protocol truth:
 
 - PostRegistry — claims and links
-- LinkGraph — DAG structure and support/challenge semantics
+- LinkGraph — directed evidence graph (cycles permitted; see ScoreEngine for cycle handling)
 - StakeEngine — stake custody and epoch mechanics
-- ScoreEngine — base and effective Veracity Score (VS)
+- ScoreEngine — base and effective Verity Score (VS)
 
 All off-chain data **must be reproducible** from these contracts.
 
@@ -47,13 +47,14 @@ Source:
 - PostRegistry.getClaim
 
 ### Link
-- postId
-- independentClaimPostId
-- dependentClaimPostId
+- postId (the link's own post ID)
+- fromPostId (evidence provider)
+- toPostId (evidence receiver)
 - isChallenge
 
 Source:
-- PostRegistry.createLink
+- PostRegistry.PostCreated (contentType = 1)
+- PostRegistry.getLink
 - LinkGraph.EdgeAdded
 
 ### Stake Summary
@@ -63,6 +64,17 @@ Source:
 
 Source:
 - StakeEngine.getPostTotals
+
+### User Stake
+- postId
+- userAddress
+- side
+- amount
+- weightedPosition
+
+Source:
+- StakeEngine.getUserStake
+- StakeEngine.getUserLotInfo
 
 ### Score Snapshot (cached)
 - postId
@@ -83,6 +95,7 @@ Indexers MUST subscribe to:
 - StakeEngine.StakeAdded
 - StakeEngine.StakeWithdrawn
 - StakeEngine.PostUpdated
+- StakeEngine.PositionsRescaled (informational)
 
 View calls MAY be executed after event ingestion.
 
@@ -96,6 +109,7 @@ Supported queries include:
 - VS visualization
 - stake distributions
 - historical VS snapshots
+- user portfolio (all positions for an address)
 
 ---
 
@@ -120,11 +134,3 @@ Non-textual artifacts (images, videos, PDFs):
 - are referenced only via claim text
 
 Indexers may ignore them entirely.
-
----
-
----
-
-## Deliverables
-- This specification
-- No contract changes
