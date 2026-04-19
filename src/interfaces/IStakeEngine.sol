@@ -28,4 +28,9 @@ interface IStakeEngine {
 
     /// @notice Remove zero-amount ghost lots. Governance-only.
     function compactLots(uint256 postId, uint8 side) external;
+
+    function sMaxDecayRateRay() external view returns (uint256);
+    function sMaxDecayMaxEpochs() external view returns (uint256);
+    function setSMaxDecayRate(uint256 newRate) external;
+    function setSMaxDecayMaxEpochs(uint256 newMax) external;
 }

@@ -61,8 +61,6 @@ contract StakeEngine is GovernedUpgradeable {
     struct TopPost { uint256 postId; uint256 total; }
     TopPost[3] private topPosts;
 
-    uint256 private constant SMAX_DECAY_RATE_RAY = 995e15;
-    uint256 private constant SMAX_DECAY_MAX_EPOCHS = 3650;
 
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
@@ -78,8 +76,17 @@ contract StakeEngine is GovernedUpgradeable {
 
     uint256 public snapshotPeriod;
 
+    /// @notice sMax decay rate per epoch, in RAY.
+    ///         Default 995e15 = 0.995 = 0.5% decay per day.
+    ///         Governance-configurable. Lower value = faster decay.
+    ///         RAY (1e18) = no decay. Must be in (0, RAY].
+    uint256 public sMaxDecayRateRay;
+
+    /// @notice Maximum epochs of sMax decay to project in one call.
+    ///         Caps gas cost when catching up stale posts.
+    uint256 public sMaxDecayMaxEpochs;
+
     /// @notice Legacy field, retained for ABI compatibility.
-    uint256 public numTranches;
 
     // ------------------------------------------------------------
     // Constants
@@ -90,7 +97,8 @@ contract StakeEngine is GovernedUpgradeable {
     uint256 private constant RAY = 1e18;
 
     uint256 private constant DEFAULT_SNAPSHOT_PERIOD = 1 days;
-    uint256 private constant DEFAULT_NUM_TRANCHES = 10;
+    uint256 private constant DEFAULT_SMAX_DECAY_RATE_RAY = 995e15;
+    uint256 private constant DEFAULT_SMAX_DECAY_MAX_EPOCHS = 3650;
 
     // ------------------------------------------------------------
     // Errors
@@ -101,9 +109,10 @@ contract StakeEngine is GovernedUpgradeable {
     error OppositeSideStaked();
     error NotEnoughStake();
     error ZeroAddressToken();
-    error InvalidTranches();
     error InvalidSnapshotPeriod();
     error NoGhostLots();
+    error InvalidDecayRate();
+    error InvalidDecayMaxEpochs();
 
     // ------------------------------------------------------------
     // Events
@@ -115,9 +124,10 @@ contract StakeEngine is GovernedUpgradeable {
     event EpochMinted(uint256 indexed postId, uint256 amount);
     event EpochBurned(uint256 indexed postId, uint256 amount);
     event SnapshotPeriodSet(uint256 oldPeriod, uint256 newPeriod);
-    event NumTranchesSet(uint256 oldTranches, uint256 newTranches);
     event LotsCompacted(uint256 indexed postId, uint8 side, uint256 removed);
     event SMaxRescanned(uint256 newSMax, uint256 newSMaxPostId);
+    event SMaxDecayRateSet(uint256 oldRate, uint256 newRate);
+    event SMaxDecayMaxEpochsSet(uint256 oldMax, uint256 newMax);
     event PositionsRescaled(uint256 indexed postId, uint8 side, uint256 oldMax, uint256 newCeiling);
 
     // ------------------------------------------------------------
@@ -135,7 +145,8 @@ contract StakeEngine is GovernedUpgradeable {
         ratePolicy = StakeRatePolicy(ratePolicy_);
         sMaxLastUpdatedEpoch = _currentEpoch();
         snapshotPeriod = DEFAULT_SNAPSHOT_PERIOD;
-        numTranches = DEFAULT_NUM_TRANCHES;
+        sMaxDecayRateRay = DEFAULT_SMAX_DECAY_RATE_RAY;
+        sMaxDecayMaxEpochs = DEFAULT_SMAX_DECAY_MAX_EPOCHS;
     }
 
     // ------------------------------------------------------------
@@ -148,12 +159,22 @@ contract StakeEngine is GovernedUpgradeable {
         snapshotPeriod = newPeriod;
     }
 
-    /// @notice Legacy setter retained for ABI compatibility.
-    function setNumTranches(uint256 newTranches) external onlyGovernance {
-        if (newTranches == 0) revert InvalidTranches();
-        emit NumTranchesSet(numTranches, newTranches);
-        numTranches = newTranches;
+    /// @notice Set the sMax decay rate. Governance-only.
+    ///         Must be in (0, RAY]. 995e15 = 0.5%/day, RAY = no decay.
+    function setSMaxDecayRate(uint256 newRate) external onlyGovernance {
+        if (newRate == 0 || newRate > RAY) revert InvalidDecayRate();
+        emit SMaxDecayRateSet(sMaxDecayRateRay, newRate);
+        sMaxDecayRateRay = newRate;
     }
+
+    /// @notice Set the max epochs of sMax decay projection. Governance-only.
+    function setSMaxDecayMaxEpochs(uint256 newMax) external onlyGovernance {
+        if (newMax == 0) revert InvalidDecayMaxEpochs();
+        emit SMaxDecayMaxEpochsSet(sMaxDecayMaxEpochs, newMax);
+        sMaxDecayMaxEpochs = newMax;
+    }
+
+    /// @notice Legacy setter retained for ABI compatibility.
 
     function compactLots(uint256 postId, uint8 side) external onlyGovernance nonReentrant {
         if (side > 1) revert InvalidSide();
@@ -669,9 +690,9 @@ contract StakeEngine is GovernedUpgradeable {
     function _applySMaxDecay(uint256 currentEpoch) internal returns (uint256) {
         if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) { sMaxLastUpdatedEpoch = currentEpoch; return sMax; }
         uint256 elapsed = currentEpoch - sMaxLastUpdatedEpoch;
-        if (elapsed > SMAX_DECAY_MAX_EPOCHS) elapsed = SMAX_DECAY_MAX_EPOCHS;
+        if (elapsed > sMaxDecayMaxEpochs) elapsed = sMaxDecayMaxEpochs;
         uint256 decayed = sMax;
-        for (uint256 i = 0; i < elapsed; i++) { decayed = (decayed * SMAX_DECAY_RATE_RAY) / RAY; if (decayed == 0) break; }
+        for (uint256 i = 0; i < elapsed; i++) { decayed = (decayed * sMaxDecayRateRay) / RAY; if (decayed == 0) break; }
         sMax = decayed; sMaxLastUpdatedEpoch = currentEpoch;
         return decayed;
     }
@@ -695,9 +716,9 @@ contract StakeEngine is GovernedUpgradeable {
     function _projectSMaxDecay(uint256 currentEpoch) internal view returns (uint256) {
         if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) return sMax;
         uint256 elapsed = currentEpoch - sMaxLastUpdatedEpoch;
-        if (elapsed > SMAX_DECAY_MAX_EPOCHS) elapsed = SMAX_DECAY_MAX_EPOCHS;
+        if (elapsed > sMaxDecayMaxEpochs) elapsed = sMaxDecayMaxEpochs;
         uint256 decayed = sMax;
-        for (uint256 i = 0; i < elapsed; i++) { decayed = (decayed * SMAX_DECAY_RATE_RAY) / RAY; if (decayed == 0) break; }
+        for (uint256 i = 0; i < elapsed; i++) { decayed = (decayed * sMaxDecayRateRay) / RAY; if (decayed == 0) break; }
         uint256 leader = topPosts[0].total;
         return decayed > leader ? decayed : leader;
     }
@@ -708,5 +729,5 @@ contract StakeEngine is GovernedUpgradeable {
         q.total = total;
     }
 
-    uint256[36] private __gap;
+    uint256[500] private __gap;
 }

@@ -278,5 +278,5 @@ contract ScoreEngine is GovernedUpgradeable {
     }
 
     // Reduced gap by 2 for maxIncomingEdges + maxOutgoingLinks
-    uint256[48] private __gap;
+    uint256[500] private __gap;
 }

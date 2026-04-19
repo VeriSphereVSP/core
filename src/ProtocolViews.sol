@@ -116,5 +116,5 @@ contract ProtocolViews is GovernedUpgradeable {
         return score.getEdgeContribution(targetClaimPostId, linkPostId);
     }
 
-        uint256[50] private __gap;
+        uint256[500] private __gap;
 }

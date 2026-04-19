@@ -12,7 +12,7 @@ import "./mocks/MockVSP.sol";
 import "./mocks/MockStakeRatePolicy.sol";
 
 /// ------------------------------------------------------------
-/// StakeEngine Tests (v2 — lot consolidation + tranches)
+/// StakeEngine Tests (v2 — lot consolidation + continuous positional weighting)
 /// ------------------------------------------------------------
 contract StakeEngineTest is Test {
     MockVSP token;
@@ -251,12 +251,33 @@ contract StakeEngineTest is Test {
     }
 
     /// ------------------------------------------------------------
-    /// Governance: tranches and snapshot period
+    /// Governance: snapshot period and sMax decay
     /// ------------------------------------------------------------
 
-    function testGovernanceCanSetTranches() public {
-        engine.setNumTranches(20);
-        assertEq(engine.numTranches(), 20);
+
+    function testGovernanceCanSetSMaxDecayRate() public {
+        engine.setSMaxDecayRate(990e15);
+        assertEq(engine.sMaxDecayRateRay(), 990e15);
+    }
+
+    function testGovernanceCanSetSMaxDecayMaxEpochs() public {
+        engine.setSMaxDecayMaxEpochs(7300);
+        assertEq(engine.sMaxDecayMaxEpochs(), 7300);
+    }
+
+    function test_RevertWhen_ZeroDecayRate() public {
+        vm.expectRevert(StakeEngine.InvalidDecayRate.selector);
+        engine.setSMaxDecayRate(0);
+    }
+
+    function test_RevertWhen_DecayRateAboveRay() public {
+        vm.expectRevert(StakeEngine.InvalidDecayRate.selector);
+        engine.setSMaxDecayRate(1e18 + 1);
+    }
+
+    function test_RevertWhen_ZeroDecayMaxEpochs() public {
+        vm.expectRevert(StakeEngine.InvalidDecayMaxEpochs.selector);
+        engine.setSMaxDecayMaxEpochs(0);
     }
 
     function testGovernanceCanSetSnapshotPeriod() public {
@@ -264,10 +285,6 @@ contract StakeEngineTest is Test {
         assertEq(engine.snapshotPeriod(), 12 hours);
     }
 
-    function test_RevertWhen_ZeroTranches() public {
-        vm.expectRevert(StakeEngine.InvalidTranches.selector);
-        engine.setNumTranches(0);
-    }
 
     function test_RevertWhen_ZeroSnapshotPeriod() public {
         vm.expectRevert(StakeEngine.InvalidSnapshotPeriod.selector);

@@ -143,5 +143,5 @@ contract LinkGraph is GovernedUpgradeable {
         return tos;
     }
 
-    uint256[49] private __gap;
+    uint256[500] private __gap;
 }

@@ -295,5 +295,5 @@ contract PostRegistry is GovernedUpgradeable {
         return postId < nextPostId;
     }
 
-    uint256[49] private __gap;
+    uint256[500] private __gap;
 }
