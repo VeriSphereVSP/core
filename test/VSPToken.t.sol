@@ -15,7 +15,7 @@ contract VSPTokenTest is Test {
 
     function setUp() public {
         auth = new Authority(owner);
-        VSPToken tokenImpl = new VSPToken();
+        VSPToken tokenImpl = new VSPToken(address(0));
         ERC1967Proxy tokenProxy = new ERC1967Proxy(
             address(tokenImpl),
             abi.encodeCall(VSPToken.initialize, (address(auth)))

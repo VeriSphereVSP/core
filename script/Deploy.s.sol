@@ -67,7 +67,7 @@ contract Deploy is Script {
             1e18
         );
 
-        VSPToken tokenImpl = new VSPToken();
+        VSPToken tokenImpl = new VSPToken(forwarder);
         ERC1967Proxy tokenProxy = new ERC1967Proxy(
             address(tokenImpl),
             abi.encodeCall(VSPToken.initialize, (address(authority)))

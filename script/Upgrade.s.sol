@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 
 import "../src/PostRegistry.sol";
+import "../src/VSPToken.sol";
 import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
@@ -97,6 +98,14 @@ contract Upgrade is Script {
             authority.setBurner(postRegistryProxy, true);
             console.log("PostRegistry granted burner role");
         }
+
+        // ── VSPToken ─────────────────────────────────────────────
+        VSPToken newTokenImpl = new VSPToken(forwarderAddr);
+        UUPSUpgradeable(vspTokenAddr).upgradeToAndCall(
+            address(newTokenImpl),
+            bytes("")
+        );
+        console.log("VSPToken upgraded. New impl:", address(newTokenImpl));
 
         // ── LinkGraph ───────────────────────────────────────────────
         LinkGraph newGraphImpl = new LinkGraph(forwarderAddr);

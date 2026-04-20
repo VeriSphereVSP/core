@@ -70,14 +70,13 @@ contract PostRegistry is GovernedUpgradeable {
     error InvalidClaim();
     error ClaimTooLong(uint256 length, uint256 max);
 
-    uint256 public constant MAX_CLAIM_LENGTH = 500;
+    uint256 public constant MAX_CLAIM_LENGTH = 2000;
     error DuplicateClaim(uint256 existingPostId);
     error DuplicateLink(uint256 fromPostId, uint256 toPostId, bool isChallenge);
     error FromPostDoesNotExist();
     error ToPostDoesNotExist();
     error FromPostMustBeClaim();
     error ToPostMustBeClaim();
-    error LinkGraphAlreadySet();
     error LinkGraphZeroAddress();
     error LinkGraphNotSet();
     error FeeTransferFailed();
@@ -98,8 +97,8 @@ contract PostRegistry is GovernedUpgradeable {
         nextPostId = 1;
     }
 
+    /// @notice Set or update the LinkGraph address. Governance-only.
     function setLinkGraph(address linkGraph_) external onlyGovernance {
-        if (address(linkGraph) != address(0)) revert LinkGraphAlreadySet();
         if (linkGraph_ == address(0)) revert LinkGraphZeroAddress();
         linkGraph = LinkGraph(linkGraph_);
         emit LinkGraphSet(linkGraph_);

@@ -204,13 +204,7 @@ contract StakeEngineFuzzTest is Test {
         assertEq(total, amt1 + amt2, "consolidated total wrong");
 
         // Weighted position should be between 0 (first entry) and amt1 (second entry)
-        (
-            uint256 amount,
-            uint256 weightedPos,
-            ,
-            ,
-            ,
-        ) = engine.getUserLotInfo(address(this), postA, 0);
+        (uint256 amount, uint256 weightedPos, , , ) = engine.getUserLotInfo(address(this), postA, 0);
 
         assertEq(amount, amt1 + amt2, "lot info amount wrong");
         // First stake enters at position 0, second at position amt1
@@ -381,7 +375,7 @@ contract StakeEngineFuzzTest is Test {
     // ────────────────────────────────────────────────────────────
 
     /// @notice Given equal amounts, the earlier staker should earn
-    ///         at least as much as the later staker (tranche advantage).
+    ///         at least as much as the later staker (positional advantage).
     function testFuzz_EarlyStakerEarnsMore(
         uint128 amount,
         uint16 daysElapsed

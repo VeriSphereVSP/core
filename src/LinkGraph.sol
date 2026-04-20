@@ -10,7 +10,6 @@ import "./governance/GovernedUpgradeable.sol";
 ///         Mutually contradictory claims (A challenges B, B challenges A) are
 ///         a natural pattern that the graph must support.
 contract LinkGraph is GovernedUpgradeable {
-    error RegistryAlreadySet();
     error NotRegistry();
     error SelfLoop();
     error DuplicateEdge(
@@ -66,8 +65,8 @@ contract LinkGraph is GovernedUpgradeable {
         _;
     }
 
+    /// @notice Set or update the PostRegistry address. Governance-only.
     function setRegistry(address registry_) external onlyGovernance {
-        if (registry != address(0)) revert RegistryAlreadySet();
         if (registry_ == address(0)) revert ZeroAddress();
         registry = registry_;
         emit RegistrySet(registry_);

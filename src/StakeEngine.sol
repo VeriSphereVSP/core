@@ -202,6 +202,10 @@ contract StakeEngine is GovernedUpgradeable {
             }
         }
         if (removed == 0) revert NoGhostLots();
+
+        // Recompute positions after swap-and-pop changes array layout
+        _recomputeWeightedPositions(q);
+
         emit LotsCompacted(postId, side, removed);
     }
 
@@ -239,15 +243,15 @@ contract StakeEngine is GovernedUpgradeable {
     function getUserLotInfo(address user, uint256 postId, uint8 side)
         external view returns (
             uint256 amount, uint256 weightedPosition, uint256 entryEpoch,
-            uint256 sideTotal, uint256 tranche, uint256 positionWeight
+            uint256 sideTotal, uint256 positionWeight
         )
     {
         if (side > 1) revert InvalidSide();
         PostState storage ps = posts[postId];
         uint256 idx = _getLotIndex(ps, user, side);
-        if (idx == 0) return (0, 0, 0, 0, 0, 0);
+        if (idx == 0) return (0, 0, 0, 0, 0);
         StakeLot storage lot = ps.sides[side].lots[idx - 1];
-        if (lot.amount == 0) return (0, 0, 0, 0, 0, 0);
+        if (lot.amount == 0) return (0, 0, 0, 0, 0);
 
         uint256 currentEpoch = _currentEpoch();
         uint256 projectedAmount = lot.amount;
@@ -263,8 +267,7 @@ contract StakeEngine is GovernedUpgradeable {
         } else {
             positionWeight = RAY;
         }
-        tranche = 0;
-        return (projectedAmount, lot.weightedPosition, lot.entryEpoch, sideTotal, tranche, positionWeight);
+        return (projectedAmount, lot.weightedPosition, lot.entryEpoch, sideTotal, positionWeight);
     }
 
     // ------------------------------------------------------------
@@ -721,6 +724,17 @@ contract StakeEngine is GovernedUpgradeable {
         for (uint256 i = 0; i < elapsed; i++) { decayed = (decayed * sMaxDecayRateRay) / RAY; if (decayed == 0) break; }
         uint256 leader = topPosts[0].total;
         return decayed > leader ? decayed : leader;
+    }
+
+        /// @dev Recompute weighted positions after compaction.
+    ///      Each lot's position = cumulative stake of preceding lots.
+    function _recomputeWeightedPositions(SideQueue storage q) internal {
+        uint256 cumulative = 0;
+        for (uint256 i = 0; i < q.lots.length; i++) {
+            if (q.lots[i].amount == 0) continue;
+            q.lots[i].weightedPosition = cumulative;
+            cumulative += q.lots[i].amount;
+        }
     }
 
     function _recomputeSideTotal(SideQueue storage q) internal {

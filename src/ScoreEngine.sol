@@ -155,6 +155,8 @@ contract ScoreEngine is GovernedUpgradeable {
     }
 
     /// @dev Computes the sum of incoming link contributions, bounded by maxIncomingEdges.
+    ///      When edges exceed the limit, they are sorted by link stake descending
+    ///      so the most economically significant evidence is always processed.
     function _sumIncomingContributions(
         uint256 postId,
         uint256[] memory computing,
@@ -162,18 +164,34 @@ contract ScoreEngine is GovernedUpgradeable {
     ) internal view returns (int256 net, uint256 abs_) {
         LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(postId);
         uint256 fee = feePolicy.postingFeeVSP();
-
-        // Bound: process at most maxIncomingEdges
-        uint256 limit = inc.length;
+        uint256 n = inc.length;
         uint256 maxIn = maxIncomingEdges;
-        if (maxIn > 0 && limit > maxIn) limit = maxIn;
 
-        for (uint256 i = 0; i < limit; i++) {
+        // Sort by link stake descending when bounded
+        if (maxIn > 0 && n > maxIn) {
+            uint256[] memory stakes = new uint256[](n);
+            for (uint256 i = 0; i < n; i++) {
+                stakes[i] = _totalStake(inc[i].linkPostId);
+            }
+            // Insertion sort (view call, no gas limit; n typically < 200)
+            for (uint256 i = 1; i < n; i++) {
+                uint256 ks = stakes[i];
+                LinkGraph.IncomingEdge memory ke = inc[i];
+                uint256 j = i;
+                while (j > 0 && stakes[j - 1] < ks) {
+                    stakes[j] = stakes[j - 1];
+                    inc[j] = inc[j - 1];
+                    j--;
+                }
+                stakes[j] = ks;
+                inc[j] = ke;
+            }
+            n = maxIn;
+        }
+
+        for (uint256 i = 0; i < n; i++) {
             int256 contrib = _computeEdgeContribution(
-                inc[i],
-                computing,
-                depth,
-                fee
+                inc[i], computing, depth, fee
             );
             if (contrib != 0) {
                 net += contrib;

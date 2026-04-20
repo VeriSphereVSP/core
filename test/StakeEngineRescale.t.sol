@@ -87,8 +87,7 @@ contract StakeEngineRescaleTest is Test {
         engine.updatePost(postA);
 
         // After first snapshot: Bob's position should be < sideTotal
-        (, uint256 bobPos, , uint256 sideTotal, , ) =
-            engine.getUserLotInfo(bob, postA, 0);
+        (, uint256 bobPos, , uint256 sideTotal, ) = engine.getUserLotInfo(bob, postA, 0);
         assertLt(bobPos, sideTotal, "Bob's position must be < sideTotal after rescale");
 
         // Second snapshot: now Bob earns because his position is fixed
@@ -100,7 +99,7 @@ contract StakeEngineRescaleTest is Test {
         // but after second snapshot he should have earned
         assertGt(bobStake, 50 ether, "Bob should earn after rescale takes effect");
 
-        (, , , , , uint256 bobWeight) = engine.getUserLotInfo(bob, postA, 0);
+        (, , , , uint256 bobWeight) = engine.getUserLotInfo(bob, postA, 0);
         assertGt(bobWeight, 0, "Bob's positionWeight should be nonzero");
     }
 
@@ -124,8 +123,8 @@ contract StakeEngineRescaleTest is Test {
         vm.warp(block.timestamp + 2 days);
         engine.updatePost(postA);
 
-        (, uint256 bobPos, , , , ) = engine.getUserLotInfo(bob, postA, 0);
-        (, uint256 carolPos, , , , ) = engine.getUserLotInfo(carol, postA, 0);
+        (, uint256 bobPos, , , ) = engine.getUserLotInfo(bob, postA, 0);
+        (, uint256 carolPos, , , ) = engine.getUserLotInfo(carol, postA, 0);
         assertGe(carolPos, bobPos, "ordering preserved: Carol >= Bob");
     }
 
@@ -144,8 +143,8 @@ contract StakeEngineRescaleTest is Test {
         vm.warp(block.timestamp + 2 days);
         engine.updatePost(postA);
 
-        (, uint256 alicePos, , , , ) = engine.getUserLotInfo(alice, postA, 0);
-        (, uint256 bobPos, , , , ) = engine.getUserLotInfo(bob, postA, 0);
+        (, uint256 alicePos, , , ) = engine.getUserLotInfo(alice, postA, 0);
+        (, uint256 bobPos, , , ) = engine.getUserLotInfo(bob, postA, 0);
         // Positions are within range, so rescale should not fire.
         // Exact values may differ slightly due to mints changing sideTotal,
         // but alice at 0 stays at 0 and bob at 100e18 stays ≤ sideTotal.
@@ -172,14 +171,14 @@ contract StakeEngineRescaleTest is Test {
         vm.warp(block.timestamp + 2 days);
         engine.updatePost(postA);
 
-        (, uint256 bobPosAfterFirst, , , , ) = engine.getUserLotInfo(bob, postA, 0);
+        (, uint256 bobPosAfterFirst, , , ) = engine.getUserLotInfo(bob, postA, 0);
 
         // No new withdrawals — second snapshot shouldn't change position
         // (well, mints change sideTotal, but positions only rescale if max >= total)
         vm.warp(block.timestamp + 1 days);
         engine.updatePost(postA);
 
-        (, uint256 bobPosAfterSecond, , uint256 st, , ) = engine.getUserLotInfo(bob, postA, 0);
+        (, uint256 bobPosAfterSecond, , uint256 st, ) = engine.getUserLotInfo(bob, postA, 0);
         // After first rescale, position < sideTotal. Second snapshot grows sideTotal
         // further via mints, so position stays bounded.
         assertLt(bobPosAfterSecond, st, "position still bounded after second snapshot");
@@ -203,8 +202,7 @@ contract StakeEngineRescaleTest is Test {
         vm.warp(block.timestamp + 2 days);
         engine.updatePost(postA);
 
-        (, uint256 bobPos, , uint256 sideTotal, , ) =
-            engine.getUserLotInfo(bob, postA, 0);
+        (, uint256 bobPos, , uint256 sideTotal, ) = engine.getUserLotInfo(bob, postA, 0);
         assertLt(bobPos, sideTotal);
     }
 
@@ -227,8 +225,8 @@ contract StakeEngineRescaleTest is Test {
 
         (uint256 s, ) = engine.getPostTotals(postA);
         if (s > 0) {
-            (, uint256 bobPos, , , , ) = engine.getUserLotInfo(bob, postA, 0);
-            (, uint256 carolPos, , , , ) = engine.getUserLotInfo(carol, postA, 0);
+            (, uint256 bobPos, , , ) = engine.getUserLotInfo(bob, postA, 0);
+            (, uint256 carolPos, , , ) = engine.getUserLotInfo(carol, postA, 0);
             assertLt(bobPos, s, "Bob's position bounded by sideTotal");
             assertLt(carolPos, s, "Carol's position bounded by sideTotal");
         }
@@ -300,7 +298,7 @@ contract StakeEngineRescaleTest is Test {
         assertEq(bobAfter, bobBefore + 50 ether, "stake merge preserved");
 
         (uint256 s, ) = engine.getPostTotals(postA);
-        (, uint256 bobPos, , , , ) = engine.getUserLotInfo(bob, postA, 0);
+        (, uint256 bobPos, , , ) = engine.getUserLotInfo(bob, postA, 0);
         assertLt(bobPos, s, "Bob's position bounded after merge");
     }
 
@@ -325,8 +323,8 @@ contract StakeEngineRescaleTest is Test {
         engine.updatePost(postA);
 
         (, uint256 c) = engine.getPostTotals(postA);
-        (, uint256 bobPos, , , , ) = engine.getUserLotInfo(bob, postA, 1);
-        (, uint256 carolPos, , , , ) = engine.getUserLotInfo(carol, postA, 1);
+        (, uint256 bobPos, , , ) = engine.getUserLotInfo(bob, postA, 1);
+        (, uint256 carolPos, , , ) = engine.getUserLotInfo(carol, postA, 1);
 
         if (c > 0) {
             assertLt(bobPos, c, "Bob's challenge position bounded");
@@ -366,13 +364,13 @@ contract StakeEngineRescaleTest is Test {
 
         // After snapshot, all positions on both sides must be < sideTotal
         if (s > 0) {
-            (, uint256 alicePos, , , , ) = engine.getUserLotInfo(alice, postA, 0);
-            (, uint256 bobPos, , , , ) = engine.getUserLotInfo(bob, postA, 0);
+            (, uint256 alicePos, , , ) = engine.getUserLotInfo(alice, postA, 0);
+            (, uint256 bobPos, , , ) = engine.getUserLotInfo(bob, postA, 0);
             assertLt(alicePos, s, "Alice pos bounded");
             assertLt(bobPos, s, "Bob pos bounded");
         }
         if (c > 0) {
-            (, uint256 carolPos, , , , ) = engine.getUserLotInfo(carol, postA, 1);
+            (, uint256 carolPos, , , ) = engine.getUserLotInfo(carol, postA, 1);
             assertLt(carolPos, c, "Carol pos bounded");
         }
     }
