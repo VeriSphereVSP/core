@@ -63,8 +63,8 @@ contract Deploy is Script {
         );
         StakeRatePolicy stakeRatePolicy = new StakeRatePolicy(
             address(timelock),
-            0,
-            1e18
+            0,                          // rMin: 0% APR floor
+            1387610638335997952          // rMax: 200% APR compounded daily
         );
 
         VSPToken tokenImpl = new VSPToken(forwarder);

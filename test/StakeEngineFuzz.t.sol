@@ -203,13 +203,13 @@ contract StakeEngineFuzzTest is Test {
         uint256 total = engine.getUserStake(address(this), postA, 0);
         assertEq(total, amt1 + amt2, "consolidated total wrong");
 
-        // Weighted position should be between 0 (first entry) and amt1 (second entry)
+        // Weighted position is now the midpoint: cumBefore + amount/2
+        // Since this is the only lot on this side, cumBefore=0, amount=amt1+amt2
+        // So wPos = (amt1 + amt2) / 2
         (uint256 amount, uint256 weightedPos, , , ) = engine.getUserLotInfo(address(this), postA, 0);
 
         assertEq(amount, amt1 + amt2, "lot info amount wrong");
-        // First stake enters at position 0, second at position amt1
-        // Weighted avg = (0 * amt1 + amt1 * amt2) / (amt1 + amt2)
-        uint256 expectedPos = (amt1 * amt2) / (amt1 + amt2);
+        uint256 expectedPos = (amt1 + amt2) / 2;
         assertEq(weightedPos, expectedPos, "weighted position wrong");
     }
 

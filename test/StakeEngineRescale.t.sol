@@ -145,12 +145,13 @@ contract StakeEngineRescaleTest is Test {
 
         (, uint256 alicePos, , , ) = engine.getUserLotInfo(alice, postA, 0);
         (, uint256 bobPos, , , ) = engine.getUserLotInfo(bob, postA, 0);
-        // Positions are within range, so rescale should not fire.
-        // Exact values may differ slightly due to mints changing sideTotal,
-        // but alice at 0 stays at 0 and bob at 100e18 stays ≤ sideTotal.
-        assertEq(alicePos, 0, "Alice's position should still be 0");
+        // With midpoint model, Alice's wPos = her_amount / 2 (she's first in queue).
+        // After epoch gains her amount grew, so wPos = new_amount / 2.
+        // Just verify positions are within sideTotal and properly ordered.
         (uint256 s, ) = engine.getPostTotals(postA);
+        assertLe(alicePos, s, "Alice's position should fit in sideTotal");
         assertLe(bobPos, s, "Bob's position should fit in sideTotal");
+        assertLt(alicePos, bobPos, "Alice should be ahead of Bob");
     }
 
     // ============================================================
@@ -260,15 +261,17 @@ contract StakeEngineRescaleTest is Test {
 
         (uint256 matS, uint256 matC) = engine.getPostTotals(postA);
 
-        // Support side: view and materialized should match exactly
-        // (both use the same clamp logic for oversized positions)
-        assertEq(projS, matS, "projected support should match materialized");
+        // With midpoint model, projection and materialized may differ slightly
+        // because projection uses pre-epoch lot sizes for midpoints while
+        // materialization recomputes midpoints after epoch gains/losses.
+        // Allow 0.1% tolerance on both sides.
+        uint256 tolS = matS / 1000;
+        if (tolS == 0) tolS = 1;
+        assertApproxEqAbs(projS, matS, tolS, "projected support should match materialized");
 
-        // Challenge side: may differ slightly due to rounding in the
-        // position-weight computation path. Allow 0.5% tolerance.
-        uint256 tolerance = matC / 200; // 0.5%
-        if (tolerance == 0) tolerance = 1;
-        assertApproxEqAbs(projC, matC, tolerance, "projected challenge approximately matches");
+        uint256 tolC = matC / 1000;
+        if (tolC == 0) tolC = 1;
+        assertApproxEqAbs(projC, matC, tolC, "projected challenge approximately matches");
     }
 
     // ============================================================

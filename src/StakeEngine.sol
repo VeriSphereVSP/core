@@ -6,15 +6,16 @@ import "./interfaces/IVSPToken.sol";
 import "./governance/StakeRatePolicy.sol";
 import "./governance/GovernedUpgradeable.sol";
 
-/// @title StakeEngine (v2)
+/// @title StakeEngine (v3)
 /// @notice Manages VSP staking on posts with:
 ///         - Lot consolidation: one lot per user per side per post
-///         - Continuous positional weighting based on stake-weighted queue coord
-///         - Periodic snapshots: O(N) computation at most once per period
-///         - Lazy view projection: reads are always current, O(1), no gas
-///         - Post-snapshot position rescale: after each snapshot,
-///           weightedPosition values are clamped to [0, sideTotal) so that
-///           no lot starts the next epoch with zero posWeight
+///         - Midpoint positional weighting: wPos = cumBefore + amount/2
+///           Per-lot APR = rBase * (T - wPos) / T. No redistribution.
+///           Solo staker earns rMax/2. First of many approaches rMax.
+///           Individual APR never exceeds rMax.
+///         - O(n) recalculation on every queue mutation (stake, withdraw)
+///         - Periodic snapshots for epoch gain/loss materialization
+///         - Lazy view projection: reads project forward from last snapshot
 ///         Supports gasless meta-transactions via ERC-2771.
 contract StakeEngine is GovernedUpgradeable {
     uint8 public constant SIDE_SUPPORT = 0;
@@ -261,9 +262,10 @@ contract StakeEngine is GovernedUpgradeable {
 
         sideTotal = ps.sides[side].total;
         if (sideTotal > 0) {
-            uint256 posShare = (lot.weightedPosition * RAY) / sideTotal;
-            if (posShare > RAY) posShare = RAY;
-            positionWeight = RAY - posShare;
+            // Midpoint model: positionWeight = (T - wPos) / T
+            uint256 behindMe = lot.weightedPosition < sideTotal ? sideTotal - lot.weightedPosition : 0;
+            positionWeight = (behindMe * RAY) / sideTotal;
+            if (positionWeight > RAY) positionWeight = RAY;
         } else {
             positionWeight = RAY;
         }
@@ -308,6 +310,8 @@ contract StakeEngine is GovernedUpgradeable {
         if (lot.amount < amount) revert NotEnoughStake();
         lot.amount -= amount;
         ps.sides[side].total -= amount;
+        // O(n) recalculate all midpoint positions
+        _recomputeWeightedPositions(ps.sides[side]);
         uint256 TT = ps.sides[0].total + ps.sides[1].total;
         _updateSMax(postId, TT);
         require(ERC20_TOKEN.transfer(_msgSender(), amount), "VSP transfer failed");
@@ -397,17 +401,11 @@ contract StakeEngine is GovernedUpgradeable {
             emit EpochBurned(postId, burnS + burnC);
         }
 
-        // Recompute totals after mints/burns
+        // Recompute totals and midpoint positions after mints/burns
         _recomputeSideTotal(qs);
         _recomputeSideTotal(qc);
-
-        // Rescale positions AFTER totals are final so that every lot's
-        // weightedPosition is < sideTotal going into the next epoch.
-        // This prevents the "dropped to zero rate" edge case where
-        // earlier stakers withdrew and shrank sideTotal below later
-        // stakers' positions.
-        _rescalePositions(postId, 0, qs);
-        _rescalePositions(postId, 1, qc);
+        _recomputeWeightedPositions(qs);
+        _recomputeWeightedPositions(qc);
 
         ps.lastSnapshotEpoch = currentEpoch;
 
@@ -452,34 +450,26 @@ contract StakeEngine is GovernedUpgradeable {
         emit PositionsRescaled(postId, side, maxPos, target);
     }
 
-    /// @dev Applies epoch gains/losses with positional weighting.
+    /// @dev Applies epoch gains/losses with midpoint positional weighting.
+    ///      Each lot's delta = amount * rBase * (T - wPos) / T.
+    ///      No redistribution: unminted rate is simply not created.
+    ///      Individual earn is capped: (T - wPos) / T <= 1, so delta <= amount * rBase.
     function _applyEpoch(
         SideQueue storage q, bool supportWins, bool isSupportSide, uint256 rBase
     ) internal returns (uint256 minted, uint256 burned) {
         if (q.total == 0 || rBase == 0 || sMax == 0) return (0, 0);
         bool aligned = (supportWins && isSupportSide) || (!supportWins && !isSupportSide);
         uint256 T = q.total;
-        uint256 budget = (T * rBase) / RAY;
-
-        uint256 totalWeightedStake = 0;
-        for (uint256 i = 0; i < q.lots.length; i++) {
-            StakeLot storage lot = q.lots[i];
-            if (lot.amount == 0) continue;
-            uint256 posShare = (lot.weightedPosition * RAY) / T;
-            if (posShare > RAY) posShare = RAY;
-            uint256 posWeight = RAY - posShare;
-            totalWeightedStake += (lot.amount * posWeight) / RAY;
-        }
-        if (totalWeightedStake == 0) return (0, 0);
 
         for (uint256 i = 0; i < q.lots.length; i++) {
             StakeLot storage lot = q.lots[i];
             if (lot.amount == 0) continue;
-            uint256 posShare = (lot.weightedPosition * RAY) / T;
-            if (posShare > RAY) posShare = RAY;
-            uint256 posWeight = RAY - posShare;
-            uint256 myWeightedStake = (lot.amount * posWeight) / RAY;
-            uint256 delta = (budget * myWeightedStake) / totalWeightedStake;
+            // midpointRate = (T - wPos) / T, clamped to [0, RAY]
+            uint256 behindMe = lot.weightedPosition < T ? T - lot.weightedPosition : 0;
+            uint256 midpointRate = (behindMe * RAY) / T;
+            if (midpointRate > RAY) midpointRate = RAY;
+            // delta = amount * rBase * midpointRate / RAY
+            uint256 delta = (lot.amount * rBase * midpointRate) / (RAY * RAY);
             if (delta == 0) continue;
             if (aligned) {
                 lot.amount += delta;
@@ -489,10 +479,6 @@ contract StakeEngine is GovernedUpgradeable {
                 lot.amount -= loss;
                 burned += loss;
             }
-        }
-        q.total = 0;
-        for (uint256 i = 0; i < q.lots.length; i++) {
-            q.total += q.lots[i].amount;
         }
     }
 
@@ -505,17 +491,18 @@ contract StakeEngine is GovernedUpgradeable {
         SideQueue storage q = ps.sides[side];
         uint256 idx = _getLotIndex(ps, staker, side);
         if (idx != 0) {
+            // Existing staker: expand lot in place, amount grows
             StakeLot storage existing = q.lots[idx - 1];
-            uint256 oldAmount = existing.amount;
-            uint256 newEntryPosition = q.total;
-            existing.weightedPosition = (existing.weightedPosition * oldAmount + newEntryPosition * amount) / (oldAmount + amount);
-            existing.amount = oldAmount + amount;
+            existing.amount += amount;
         } else {
+            // New staker: append to end of queue
             uint256 newIdx = q.lots.length;
-            q.lots.push(StakeLot({ staker: staker, amount: amount, side: side, weightedPosition: q.total, entryEpoch: _currentEpoch() }));
+            q.lots.push(StakeLot({ staker: staker, amount: amount, side: side, weightedPosition: 0, entryEpoch: _currentEpoch() }));
             _setLotIndex(ps, staker, side, newIdx + 1);
         }
         q.total += amount;
+        // O(n) recalculate all midpoint positions
+        _recomputeWeightedPositions(q);
         uint256 TT = ps.sides[0].total + ps.sides[1].total;
         _updateSMax(postId, TT);
     }
@@ -561,28 +548,15 @@ contract StakeEngine is GovernedUpgradeable {
         if (q.total == 0 || rBase == 0) return q.total;
         bool aligned = (supportWins && isSupportSide) || (!supportWins && !isSupportSide);
         uint256 T = q.total;
-        uint256 budget = (T * rBase) / RAY;
-
-        uint256 totalWeightedStake = 0;
-        for (uint256 i = 0; i < q.lots.length; i++) {
-            StakeLot storage lot = q.lots[i];
-            if (lot.amount == 0) continue;
-            uint256 posShare = (lot.weightedPosition * RAY) / T;
-            if (posShare > RAY) posShare = RAY;
-            uint256 posWeight = RAY - posShare;
-            totalWeightedStake += (lot.amount * posWeight) / RAY;
-        }
-        if (totalWeightedStake == 0) return q.total;
 
         total = 0;
         for (uint256 i = 0; i < q.lots.length; i++) {
             StakeLot storage lot = q.lots[i];
             if (lot.amount == 0) continue;
-            uint256 posShare = (lot.weightedPosition * RAY) / T;
-            if (posShare > RAY) posShare = RAY;
-            uint256 posWeight = RAY - posShare;
-            uint256 myWeightedStake = (lot.amount * posWeight) / RAY;
-            uint256 delta = (budget * myWeightedStake) / totalWeightedStake;
+            uint256 behindMe = lot.weightedPosition < T ? T - lot.weightedPosition : 0;
+            uint256 midpointRate = (behindMe * RAY) / T;
+            if (midpointRate > RAY) midpointRate = RAY;
+            uint256 delta = (lot.amount * rBase * midpointRate) / (RAY * RAY);
             if (aligned) {
                 total += lot.amount + delta;
             } else {
@@ -618,24 +592,11 @@ contract StakeEngine is GovernedUpgradeable {
         SideQueue storage mySide = isSupportSide ? qs : qc;
         uint256 sideTotal = mySide.total;
         if (sideTotal == 0 || rBase == 0) return lot.amount;
-        uint256 budget = (sideTotal * rBase) / RAY;
 
-        uint256 totalWeightedStake = 0;
-        for (uint256 i = 0; i < mySide.lots.length; i++) {
-            StakeLot storage lj = mySide.lots[i];
-            if (lj.amount == 0) continue;
-            uint256 posShare_j = (lj.weightedPosition * RAY) / sideTotal;
-            if (posShare_j > RAY) posShare_j = RAY;
-            uint256 posWeight_j = RAY - posShare_j;
-            totalWeightedStake += (lj.amount * posWeight_j) / RAY;
-        }
-        if (totalWeightedStake == 0) return lot.amount;
-
-        uint256 posShare = (lot.weightedPosition * RAY) / sideTotal;
-        if (posShare > RAY) posShare = RAY;
-        uint256 posWeight = RAY - posShare;
-        uint256 myWeightedStake = (lot.amount * posWeight) / RAY;
-        uint256 delta = (budget * myWeightedStake) / totalWeightedStake;
+        uint256 behindMe = lot.weightedPosition < sideTotal ? sideTotal - lot.weightedPosition : 0;
+        uint256 midpointRate = (behindMe * RAY) / sideTotal;
+        if (midpointRate > RAY) midpointRate = RAY;
+        uint256 delta = (lot.amount * rBase * midpointRate) / (RAY * RAY);
         if (aligned) {
             return lot.amount + delta;
         } else {
@@ -726,13 +687,13 @@ contract StakeEngine is GovernedUpgradeable {
         return decayed > leader ? decayed : leader;
     }
 
-        /// @dev Recompute weighted positions after compaction.
-    ///      Each lot's position = cumulative stake of preceding lots.
+    /// @dev Recompute weighted positions as midpoints: cumBefore + amount/2.
+    ///      Called after any queue mutation (stake, withdraw, compact, epoch).
     function _recomputeWeightedPositions(SideQueue storage q) internal {
         uint256 cumulative = 0;
         for (uint256 i = 0; i < q.lots.length; i++) {
             if (q.lots[i].amount == 0) continue;
-            q.lots[i].weightedPosition = cumulative;
+            q.lots[i].weightedPosition = cumulative + q.lots[i].amount / 2;
             cumulative += q.lots[i].amount;
         }
     }
