@@ -67,7 +67,7 @@ contract Deploy is Script {
             1387610638335997952          // rMax: 200% APR compounded daily
         );
 
-        VSPToken tokenImpl = new VSPToken(forwarder);
+        VSPToken tokenImpl = new VSPToken(address(0));  // No ERC-2771: forwarder calls transferFrom directly
         ERC1967Proxy tokenProxy = new ERC1967Proxy(
             address(tokenImpl),
             abi.encodeCall(VSPToken.initialize, (address(authority)))

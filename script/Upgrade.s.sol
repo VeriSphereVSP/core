@@ -100,7 +100,7 @@ contract Upgrade is Script {
         }
 
         // ── VSPToken ─────────────────────────────────────────────
-        VSPToken newTokenImpl = new VSPToken(forwarderAddr);
+        VSPToken newTokenImpl = new VSPToken(address(0));  // No ERC-2771: forwarder calls transferFrom directly
         UUPSUpgradeable(vspTokenAddr).upgradeToAndCall(
             address(newTokenImpl),
             bytes("")
