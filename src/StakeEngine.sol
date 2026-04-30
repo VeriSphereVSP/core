@@ -98,8 +98,8 @@ contract StakeEngine is GovernedUpgradeable {
     uint256 private constant RAY = 1e18;
 
     uint256 private constant DEFAULT_SNAPSHOT_PERIOD = 1 days;
-    uint256 private constant DEFAULT_SMAX_DECAY_RATE_RAY = 995e15;
-    uint256 private constant DEFAULT_SMAX_DECAY_MAX_EPOCHS = 3650;
+    uint256 private constant DEFAULT_SMAX_DECAY_RATE_RAY = 9e17;  // 10% daily decay
+    uint256 private constant DEFAULT_SMAX_DECAY_MAX_EPOCHS = 30;   // Full decay in ~30 days
 
     // ------------------------------------------------------------
     // Errors
@@ -330,6 +330,66 @@ contract StakeEngine is GovernedUpgradeable {
     // ------------------------------------------------------------
     // Internal: Snapshot logic
     // ------------------------------------------------------------
+
+
+    /// @notice Set the user's stake on a post to a target value.
+    ///         target > 0: desired support stake amount
+    ///         target < 0: desired challenge stake amount (absolute value)
+    ///         target == 0: withdraw all stakes on this post
+    function setStake(uint256 postId, int256 target) external nonReentrant {
+        PostState storage ps = posts[postId];
+        uint256 epoch = _currentEpoch();
+        _maybeSnapshot(postId, epoch);
+        address user = _msgSender();
+
+        uint256 supIdx = _getLotIndex(ps, user, 0);
+        uint256 chalIdx = _getLotIndex(ps, user, 1);
+        uint256 currentSup = supIdx != 0 ? ps.sides[0].lots[supIdx - 1].amount : 0;
+        uint256 currentChal = chalIdx != 0 ? ps.sides[1].lots[chalIdx - 1].amount : 0;
+
+        uint256 absTarget = target >= 0 ? uint256(target) : uint256(-target);
+
+        if (target == 0) {
+            if (currentSup > 0) _doWithdraw(postId, ps, user, 0, currentSup);
+            if (currentChal > 0) _doWithdraw(postId, ps, user, 1, currentChal);
+        } else if (target > 0) {
+            if (currentChal > 0) _doWithdraw(postId, ps, user, 1, currentChal);
+            if (absTarget > currentSup) {
+                uint256 toStake = absTarget - currentSup;
+                require(ERC20_TOKEN.transferFrom(user, address(this), toStake), "VSP transfer failed");
+                _addOrMergeLot(postId, 0, toStake, user);
+                emit StakeAdded(postId, user, 0, toStake);
+            } else if (absTarget < currentSup) {
+                _doWithdraw(postId, ps, user, 0, currentSup - absTarget);
+            }
+        } else {
+            if (currentSup > 0) _doWithdraw(postId, ps, user, 0, currentSup);
+            if (absTarget > currentChal) {
+                uint256 toStake = absTarget - currentChal;
+                require(ERC20_TOKEN.transferFrom(user, address(this), toStake), "VSP transfer failed");
+                _addOrMergeLot(postId, 1, toStake, user);
+                emit StakeAdded(postId, user, 1, toStake);
+            } else if (absTarget < currentChal) {
+                _doWithdraw(postId, ps, user, 1, currentChal - absTarget);
+            }
+        }
+
+        uint256 TT = ps.sides[0].total + ps.sides[1].total;
+        _updateSMax(postId, TT);
+    }
+
+    /// @dev Withdraw helper for setStake (no reentrancy guard - caller is guarded)
+    function _doWithdraw(uint256 postId, PostState storage ps, address user, uint8 side, uint256 amount) internal {
+        uint256 idx = _getLotIndex(ps, user, side);
+        if (idx == 0) return;
+        StakeLot storage lot = ps.sides[side].lots[idx - 1];
+        if (amount > lot.amount) amount = lot.amount;
+        lot.amount -= amount;
+        ps.sides[side].total -= amount;
+        _recomputeWeightedPositions(ps.sides[side]);
+        require(ERC20_TOKEN.transfer(user, amount), "VSP transfer failed");
+        emit StakeWithdrawn(postId, user, side, amount, true);
+    }
 
     function _maybeSnapshot(uint256 postId, uint256 currentEpoch) internal {
         PostState storage ps = posts[postId];
@@ -642,8 +702,9 @@ contract StakeEngine is GovernedUpgradeable {
             if (leaderTotal >= sMax) {
                 sMax = leaderTotal; sMaxLastUpdatedEpoch = currentEpoch;
             } else {
-                uint256 decayed = _applySMaxDecay(currentEpoch);
-                sMax = decayed > leaderTotal ? decayed : leaderTotal;
+                // Snap down to current leader immediately.
+                // Decay is only a fallback for stale topPosts array.
+                sMax = leaderTotal; sMaxLastUpdatedEpoch = currentEpoch;
             }
             sMaxPostId = topPosts[0].postId;
         } else {
