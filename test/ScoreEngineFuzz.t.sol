@@ -406,6 +406,101 @@ contract ScoreEngineFuzzTest is Test {
             assertEq(effVS, 0, "effectiveVS should be zero when baseVS is zero");
         }
     }
+
+    // ════════════════════════════════════════════════════════════
+    // Conservation of Influence under Bounded Fan-Out (v2.1)
+    // ════════════════════════════════════════════════════════════
+
+    /// @notice Verifies that under bounded outgoing fan-out, only links
+    ///         in the parent's top-N by stake produce a non-zero
+    ///         contribution, and that the sum of those contributions is
+    ///         bounded by parent mass × max link VS / RAY.
+    function test_ConservationOfInfluenceUnderBoundedFanOut() public {
+        // Force a tight outgoing limit so we can observe the cut.
+        score.setEdgeLimits(64, 3);
+
+        // Parent: fully positive VS, parentMass = 1000.
+        uint256 parent = _createAndStake("parent_conservation", 1000, 0);
+
+        // Five distinct targets and five outgoing links from parent,
+        // each with a different stake (all above FEE = 50 so the
+        // activity gate doesn't pre-filter them, isolating the
+        // top-N gate).
+        uint256[5] memory tgt;
+        uint256[5] memory linkIds;
+        uint256[5] memory linkStakes = [uint256(60), 70, 80, 90, 100];
+        for (uint256 i = 0; i < 5; i++) {
+            tgt[i] = _createAndStake(
+                string.concat("ct_target_", vm.toString(i)),
+                100,
+                0
+            );
+            linkIds[i] = registry.createLink(parent, tgt[i], false);
+            stakeEng.stake(linkIds[i], 0, linkStakes[i]);
+        }
+
+        // With maxOut = 3, the kept top-3 are the links with stakes
+        // 100, 90, 80 (indices 4, 3, 2). The cut links are stakes
+        // 70, 60 (indices 1, 0).
+        int256 c0 = score.getEdgeContribution(tgt[0], linkIds[0]);
+        int256 c1 = score.getEdgeContribution(tgt[1], linkIds[1]);
+        int256 c2 = score.getEdgeContribution(tgt[2], linkIds[2]);
+        int256 c3 = score.getEdgeContribution(tgt[3], linkIds[3]);
+        int256 c4 = score.getEdgeContribution(tgt[4], linkIds[4]);
+
+        assertEq(c0, 0, "stake-60 link must be cut and contribute 0");
+        assertEq(c1, 0, "stake-70 link must be cut and contribute 0");
+        assertGt(c2, 0, "stake-80 link must be in top-N and contribute");
+        assertGt(c3, 0, "stake-90 link must be in top-N and contribute");
+        assertGt(c4, 0, "stake-100 link must be in top-N and contribute");
+
+        // Conservation invariant: sum of kept-link contributions is
+        // bounded by parent mass (= 1000 here, since parentVS = +RAY).
+        // With identical link VS = +RAY across all kept links:
+        //   sumContrib = parentMass × sum(keptStakes) / sum(keptStakes) = parentMass
+        // (modulo tiny truncation in the integer division).
+        int256 sumKept = c2 + c3 + c4;
+        int256 parentMass = 1000;
+        assertLe(sumKept, parentMass, "kept-link contributions exceed parent mass");
+        assertApproxEqAbs(sumKept, parentMass, 5, "kept sum should equal parent mass");
+    }
+
+    /// @notice Verifies the deterministic tiebreak in the outgoing top-N
+    ///         cut: equal stakes are ordered by linkPostId ascending, so
+    ///         the older link wins.
+    function test_OutgoingTiebreakIsLinkPostIdAscending() public {
+        // Tight outgoing limit and identical stakes so the tiebreak is
+        // the only thing distinguishing kept from cut.
+        score.setEdgeLimits(64, 2);
+
+        uint256 parent = _createAndStake("parent_tiebreak", 1000, 0);
+
+        // Three outgoing links, all with the SAME stake. linkIds are
+        // assigned by registry.createLink in creation order, so
+        // linkIds[0] < linkIds[1] < linkIds[2].
+        uint256[3] memory tgt;
+        uint256[3] memory linkIds;
+        for (uint256 i = 0; i < 3; i++) {
+            tgt[i] = _createAndStake(
+                string.concat("tb_target_", vm.toString(i)),
+                100,
+                0
+            );
+            linkIds[i] = registry.createLink(parent, tgt[i], false);
+            stakeEng.stake(linkIds[i], 0, 75);
+        }
+
+        int256 c0 = score.getEdgeContribution(tgt[0], linkIds[0]);
+        int256 c1 = score.getEdgeContribution(tgt[1], linkIds[1]);
+        int256 c2 = score.getEdgeContribution(tgt[2], linkIds[2]);
+
+        assertGt(c0, 0, "earliest tied link must be kept");
+        assertGt(c1, 0, "second-earliest tied link must be kept");
+        assertEq(
+            c2, 0,
+            "latest tied link must be cut by linkPostId-ascending tiebreak"
+        );
+    }
 }
 
 /// @notice Minimal mock for posting fee policy (used in ScoreEngine tests)

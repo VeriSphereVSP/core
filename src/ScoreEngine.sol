@@ -156,7 +156,9 @@ contract ScoreEngine is GovernedUpgradeable {
 
     /// @dev Computes the sum of incoming link contributions, bounded by maxIncomingEdges.
     ///      When edges exceed the limit, they are sorted by link stake descending
-    ///      so the most economically significant evidence is always processed.
+    ///      with ties broken by linkPostId ascending (older link wins) so the most
+    ///      economically significant evidence is always processed and the cap
+    ///      decision is deterministic across calls and off-chain indexers.
     function _sumIncomingContributions(
         uint256 postId,
         uint256[] memory computing,
@@ -167,7 +169,7 @@ contract ScoreEngine is GovernedUpgradeable {
         uint256 n = inc.length;
         uint256 maxIn = maxIncomingEdges;
 
-        // Sort by link stake descending when bounded
+        // Sort by link stake descending (ties: linkPostId ascending) when bounded.
         if (maxIn > 0 && n > maxIn) {
             uint256[] memory stakes = new uint256[](n);
             for (uint256 i = 0; i < n; i++) {
@@ -178,7 +180,13 @@ contract ScoreEngine is GovernedUpgradeable {
                 uint256 ks = stakes[i];
                 LinkGraph.IncomingEdge memory ke = inc[i];
                 uint256 j = i;
-                while (j > 0 && stakes[j - 1] < ks) {
+                while (
+                    j > 0 &&
+                    (
+                        stakes[j - 1] < ks ||
+                        (stakes[j - 1] == ks && inc[j - 1].linkPostId > ke.linkPostId)
+                    )
+                ) {
                     stakes[j] = stakes[j - 1];
                     inc[j] = inc[j - 1];
                     j--;
@@ -201,6 +209,19 @@ contract ScoreEngine is GovernedUpgradeable {
     }
 
     /// @dev Computes the contribution of a single incoming edge.
+    ///
+    ///      Conservation of influence (whitepaper §4.4) requires that the
+    ///      sum of `linkShare` across all of a parent's outgoing links be
+    ///      ≤ 1.0. Under bounded fan-out (maxOutgoingLinks), only the top-N
+    ///      outgoing links by stake (ties: linkPostId ascending) sum into
+    ///      the parent's denominator. To preserve conservation, this gate
+    ///      makes those same top-N the *only* links that produce a non-zero
+    ///      numerator: a link outside its parent's top-N contributes zero.
+    ///
+    ///      This means: a parent's mass is fully distributed across its
+    ///      top-N outgoing links and nowhere else. Adding more outgoing
+    ///      links beyond the cap does not increase total influence — it
+    ///      only competes for slots in the top-N.
     function _computeEdgeContribution(
         LinkGraph.IncomingEdge memory e,
         uint256[] memory computing,
@@ -225,9 +246,14 @@ contract ScoreEngine is GovernedUpgradeable {
         int256 linkVS = baseVSRay(e.linkPostId);
         if (linkVS <= 0) return 0;
 
-        // Parent mass distributed to this link (bounded outgoing sum)
-        uint256 sumOutgoing = _sumOutgoingLinkStake(e.fromClaimPostId, fee);
+        // Parent mass distributed to this link (bounded outgoing sum +
+        // top-N membership gate enforcing conservation of influence).
+        (uint256 sumOutgoing, uint256 thresholdStake, uint256 thresholdPostId)
+            = _sumOutgoingLinkStake(e.fromClaimPostId, fee);
         if (sumOutgoing == 0) return 0;
+        if (!_isInTopN(linkStake, e.linkPostId, thresholdStake, thresholdPostId)) {
+            return 0;
+        }
 
         int256 numerator = (parentVS * parentTotal.toInt256() * linkStake.toInt256()) /
             sumOutgoing.toInt256();
@@ -238,12 +264,33 @@ contract ScoreEngine is GovernedUpgradeable {
         return contrib;
     }
 
+    /// @dev True iff a link with `(linkStake, linkPostId)` is at or above the
+    ///      top-N cutoff established by _sumOutgoingLinkStake.
+    ///      The cutoff is `(thresholdStake, thresholdPostId)` describing the
+    ///      bottom-of-the-kept-set (smallest stake, with linkPostId-ascending
+    ///      tiebreak). A link qualifies if its stake is strictly greater, or
+    ///      its stake is exactly equal and its postId is at most the
+    ///      threshold's postId. When no cap was applied, thresholdStake is 0
+    ///      and thresholdPostId is type(uint256).max so every link passes.
+    function _isInTopN(
+        uint256 linkStake,
+        uint256 linkPostId,
+        uint256 thresholdStake,
+        uint256 thresholdPostId
+    ) internal pure returns (bool) {
+        if (linkStake > thresholdStake) return true;
+        if (linkStake < thresholdStake) return false;
+        return linkPostId <= thresholdPostId;
+    }
+
     /// @notice Public view: computes the signed contribution of one link to its target claim's VS.
     /// @param targetClaimPostId The claim receiving the contribution
     /// @param linkPostId The link whose contribution to compute
     /// @return contrib In RAY units. Positive = link pushes target VS up, negative = pushes down.
     ///                 Returns 0 if the link does not target the given claim or if any guard
-    ///                 (inactivity, non-positive parent VS, non-positive link VS) fails.
+    ///                 fails (parent inactive, link inactive, parent VS ≤ 0, link VS ≤ 0,
+    ///                 link outside the target's top-`maxIncomingEdges` incoming, or link
+    ///                 outside the parent's top-`maxOutgoingLinks` outgoing).
     /// @dev Same math used internally when computing target's effective VS. Safe to call
     ///      off-chain; iterates over incoming edges once.
     function getEdgeContribution(uint256 targetClaimPostId, uint256 linkPostId)
@@ -253,13 +300,39 @@ contract ScoreEngine is GovernedUpgradeable {
     {
         LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(targetClaimPostId);
         uint256 fee = feePolicy.postingFeeVSP();
-        for (uint256 i = 0; i < inc.length; i++) {
+        uint256 n = inc.length;
+        uint256 maxIn = maxIncomingEdges;
+
+        // Locate the matching incoming edge first.
+        uint256 idx = type(uint256).max;
+        for (uint256 i = 0; i < n; i++) {
             if (inc[i].linkPostId == linkPostId) {
-                uint256[] memory computing = new uint256[](MAX_DEPTH + 1);
-                return _computeEdgeContribution(inc[i], computing, 0, fee);
+                idx = i;
+                break;
             }
         }
-        return 0;
+        if (idx == type(uint256).max) return 0;
+
+        // Apply the same incoming-cap gate that _sumIncomingContributions uses,
+        // so this view reports the same number that effectiveVSRay would see.
+        if (maxIn > 0 && n > maxIn) {
+            uint256 thisStake = _totalStake(linkPostId);
+            uint256 ahead = 0;
+            for (uint256 i = 0; i < n; i++) {
+                if (i == idx) continue;
+                uint256 si = _totalStake(inc[i].linkPostId);
+                if (si > thisStake) {
+                    ahead++;
+                } else if (si == thisStake && inc[i].linkPostId < linkPostId) {
+                    ahead++;
+                }
+                // Early exit: we only need to know whether ahead >= maxIn.
+                if (ahead >= maxIn) return 0;
+            }
+        }
+
+        uint256[] memory computing = new uint256[](MAX_DEPTH + 1);
+        return _computeEdgeContribution(inc[idx], computing, 0, fee);
     }
 
     function _totalStake(uint256 postId) internal view returns (uint256) {
@@ -268,18 +341,74 @@ contract ScoreEngine is GovernedUpgradeable {
     }
 
     /// @dev Sum outgoing link stakes, bounded by maxOutgoingLinks.
+    ///      When the parent has more outgoing links than the limit, they
+    ///      are sorted by link stake descending (ties: linkPostId ascending,
+    ///      i.e. older link wins) and only the top maxOutgoingLinks are
+    ///      summed. Returns the sum together with the cutoff
+    ///      `(thresholdStake, thresholdPostId)` describing the smallest
+    ///      stake / largest-postId link that made the cut, so callers can
+    ///      ask "is this specific link in the top-N?" via _isInTopN.
+    ///      When no cap was needed, thresholdStake = 0 and
+    ///      thresholdPostId = type(uint256).max — every link qualifies.
+    ///
+    ///      The fee filter (skip links with stake < posting fee) is
+    ///      applied to the sum but NOT to top-N membership: a below-fee
+    ///      link can win a top-N slot, but its stake doesn't dilute
+    ///      siblings' shares (excluded from sum), and
+    ///      _computeEdgeContribution will short-circuit it via
+    ///      activityPolicy.isActive.
     function _sumOutgoingLinkStake(
         uint256 claimPostId,
         uint256 fee
-    ) internal view returns (uint256 sum) {
+    ) internal view returns (
+        uint256 sum,
+        uint256 thresholdStake,
+        uint256 thresholdPostId
+    ) {
         LinkGraph.Edge[] memory outs = graph.getOutgoing(claimPostId);
-
-        // Bound: process at most maxOutgoingLinks
-        uint256 limit = outs.length;
+        uint256 n = outs.length;
         uint256 maxOut = maxOutgoingLinks;
-        if (maxOut > 0 && limit > maxOut) limit = maxOut;
 
-        for (uint256 i = 0; i < limit; i++) {
+        if (n == 0) {
+            return (0, 0, type(uint256).max);
+        }
+
+        // Sort by link stake descending (ties: linkPostId ascending) when bounded.
+        if (maxOut > 0 && n > maxOut) {
+            uint256[] memory stakes = new uint256[](n);
+            for (uint256 i = 0; i < n; i++) {
+                stakes[i] = _totalStake(outs[i].linkPostId);
+            }
+            // Insertion sort (view call, no gas limit; n typically < 200)
+            for (uint256 i = 1; i < n; i++) {
+                uint256 ks = stakes[i];
+                LinkGraph.Edge memory ke = outs[i];
+                uint256 j = i;
+                while (
+                    j > 0 &&
+                    (
+                        stakes[j - 1] < ks ||
+                        (stakes[j - 1] == ks && outs[j - 1].linkPostId > ke.linkPostId)
+                    )
+                ) {
+                    stakes[j] = stakes[j - 1];
+                    outs[j] = outs[j - 1];
+                    j--;
+                }
+                stakes[j] = ks;
+                outs[j] = ke;
+            }
+            // Cutoff is the maxOut-th element (1-indexed) — outs[maxOut - 1].
+            thresholdStake = stakes[maxOut - 1];
+            thresholdPostId = outs[maxOut - 1].linkPostId;
+            n = maxOut;
+        } else {
+            // No cap applied — every link qualifies.
+            thresholdStake = 0;
+            thresholdPostId = type(uint256).max;
+        }
+
+        for (uint256 i = 0; i < n; i++) {
             uint256 t = _totalStake(outs[i].linkPostId);
             if (t >= fee) sum += t;
         }
