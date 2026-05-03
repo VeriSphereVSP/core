@@ -47,9 +47,15 @@ More generally:
 
 ---
 
-### I.4 sMax decays and is bounded
-`sMax` decays at 0.5% per epoch when the leading post's total stake is
-below the previous `sMax`. It is floored at the current leader's total
+### I.4 sMax tracks the current leader
+`sMax` is snapped to the largest active post's total via the top-3
+leader tracker on every interaction. There is no slow decay during
+normal operation: as soon as the previous leader withdraws below the
+second-place total, `sMax` snaps down to the new leader. A
+governance-configurable fallback exponential decay (currently 10% per
+epoch capped at 30 epochs) only runs when no post has any stake, so
+that a stale `sMax` cannot stay frozen forever after a complete
+unwind. It is floored at the current leader's total
 and raised immediately when a post exceeds it.
 
 **Safety statement**

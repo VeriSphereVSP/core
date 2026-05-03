@@ -146,12 +146,20 @@ Goal:
 
 ## G. sMax Manipulation
 
-### G.1 Pump-and-decay against sMax
+### G.1 Pump-and-dump against sMax
 **Attack**
-- An attacker stakes massively on a post to push sMax up, then withdraws, leaving smaller posts with a large sMax denominator and therefore low participation factors.
+- An attacker stakes massively on a post to push sMax up, then withdraws, hoping to leave smaller posts with a large sMax denominator and therefore low participation factors.
 
 **Mitigations**
-- `sMax` decays at 0.5% per epoch when the leader's total is below the previous `sMax` (capped at 3650 epochs of decay per refresh). This bounds the duration of suppression after a pump.
-- The decay floor is the current leader's total, so `sMax` cannot drop below the largest active post.
-- The top-3 tracker promotes the next-largest post as leader if the previous leader withdraws, mitigating cliff effects.
+- The top-3 leader tracker snaps `sMax` to the new leader's total as soon as the attacker withdraws below the second-place post. There is no slow decay during normal operation; suppression ends with the attacker's exit transaction. A governance-configurable fallback exponential decay (currently 10% per epoch capped at 30 epochs) only runs if every post on the protocol unwinds completely, so even in that pathological case `sMax` cannot stay frozen forever.
+- During the brief window when the attacker is still the leader, the new staker pays the cost of the inflated denominator. After the withdrawal the cost vanishes immediately.
 - Governance can call `rescanSMax` to rebuild the tracker if state diverges from reality (e.g., after upgrades or extreme griefing).
+
+### G.2 Link-spam against bounded fan-out
+**Attack**
+- An attacker creates many low-stake outgoing links from a credible parent claim, hoping that each link will earn a share of the parent's mass against the same denominator (or that links beyond the cap will silently steal influence without being summed in the denominator).
+
+**Mitigations**
+- ScoreEngine v2.1 enforces conservation of influence under the outgoing fan-out cap: only the parent's top-`maxOutgoingLinks` outgoing links by stake (with linkPostId-ascending tiebreak) participate in the distribution. Links outside that top-N contribute zero — they neither appear in the parent's denominator nor produce a numerator.
+- As a result, link spam past the cap has zero economic effect: the attacker burns the posting fee plus any link stake, and gets no influence in return. To displace one of the top-N, an attacker must outstake the smallest existing top-N entry (or, in case of a tie, the one with the largest linkPostId).
+- Within the cap, conservation of influence is preserved: the sum of `linkShare` across all top-N outgoing links is ≤ 1.0, so a parent's mass is fully and exclusively distributed among them.
