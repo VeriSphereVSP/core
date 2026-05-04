@@ -21,11 +21,14 @@ abstract contract GovernedUpgradeable is
     ERC2771ContextUpgradeable
 {
     address public governance;
+    address public pendingGovernance;
 
     error NotGovernance();
+    error NotPendingGovernance();
     error ZeroAddress();
 
     event GovernanceSet(address indexed governance);
+    event PendingGovernanceSet(address indexed pending);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
@@ -48,6 +51,26 @@ abstract contract GovernedUpgradeable is
     }
 
     function _authorizeUpgrade(address) internal override onlyGovernance {}
+
+    // ----- Two-step governance transfer -----
+
+    /// @notice Propose a new governance address. Only callable by current governance.
+    ///         The proposed address must call acceptGovernance() to complete the transfer.
+    ///         Setting pending to address(0) cancels any outstanding proposal.
+    function proposeGovernance(address newGovernance) external onlyGovernance {
+        pendingGovernance = newGovernance;
+        emit PendingGovernanceSet(newGovernance);
+    }
+
+    /// @notice Accept proposed governance role. Only callable by the address
+    ///         that was set as pendingGovernance via proposeGovernance().
+    function acceptGovernance() external {
+        if (_msgSender() != pendingGovernance) revert NotPendingGovernance();
+        if (pendingGovernance == address(0)) revert ZeroAddress();
+        governance = pendingGovernance;
+        pendingGovernance = address(0);
+        emit GovernanceSet(governance);
+    }
 
     // ----- Solidity diamond override resolution -----
 
@@ -81,5 +104,5 @@ abstract contract GovernedUpgradeable is
         return ERC2771ContextUpgradeable._contextSuffixLength();
     }
 
-    uint256[49] private __gap;
+    uint256[100] private __gap;
 }
