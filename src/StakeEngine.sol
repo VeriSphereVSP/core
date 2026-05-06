@@ -135,6 +135,33 @@ contract StakeEngine is GovernedUpgradeable {
     // Constructor / Initializer
     // ------------------------------------------------------------
 
+    // ─────────────────────────────────────────────────────────────────
+    // Pause / Guardian (patch12b)
+    // ─────────────────────────────────────────────────────────────────
+    //
+    // guardian can call pause() (fast emergency halt). Only governance
+    // can unpause(), so resuming is a deliberate multisig+timelock step.
+    //
+    // Pause scope: stake() and setStake() reverted when paused.
+    // withdraw() and updatePost() remain callable so users can always
+    // exit positions even during emergencies.
+    address public guardian;
+    bool public paused;
+    bool internal _initializedV2;
+
+    event Paused(address indexed by);
+    event Unpaused(address indexed by);
+    event GuardianSet(address indexed oldGuardian, address indexed newGuardian);
+
+    error WhenPaused();
+    error NotGuardianOrGovernance();
+    error AlreadyInitializedV2();
+
+    modifier whenNotPaused() {
+        if (paused) revert WhenPaused();
+        _;
+    }
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address trustedForwarder_) GovernedUpgradeable(trustedForwarder_) {}
 
@@ -173,6 +200,43 @@ contract StakeEngine is GovernedUpgradeable {
         if (newMax == 0) revert InvalidDecayMaxEpochs();
         emit SMaxDecayMaxEpochsSet(sMaxDecayMaxEpochs, newMax);
         sMaxDecayMaxEpochs = newMax;
+    }
+
+
+    // -------- Pause / Guardian admin (patch12b) --------
+
+    /// @notice One-shot V2 initializer. Sets initial Guardian after
+    ///         upgrade-in-place. Only governance, only once.
+    function initializeV2(address guardian_) external onlyGovernance {
+        if (_initializedV2) revert AlreadyInitializedV2();
+        _initializedV2 = true;
+        guardian = guardian_;
+        emit GuardianSet(address(0), guardian_);
+    }
+
+    /// @notice Pause new staking. Callable by Guardian (fast emergency
+    ///         response) or by governance (deliberate). Withdraws and
+    ///         updatePost remain callable while paused.
+    function pause() external {
+        address sender = _msgSender();
+        if (sender != guardian && sender != governance) {
+            revert NotGuardianOrGovernance();
+        }
+        paused = true;
+        emit Paused(sender);
+    }
+
+    /// @notice Unpause. Governance only.
+    function unpause() external onlyGovernance {
+        paused = false;
+        emit Unpaused(_msgSender());
+    }
+
+    /// @notice Replace the Guardian. Governance only.
+    function setGuardian(address newGuardian) external onlyGovernance {
+        address old = guardian;
+        guardian = newGuardian;
+        emit GuardianSet(old, newGuardian);
     }
 
     /// @notice Legacy setter retained for ABI compatibility.
@@ -276,7 +340,7 @@ contract StakeEngine is GovernedUpgradeable {
     // Stake
     // ------------------------------------------------------------
 
-    function stake(uint256 postId, uint8 side, uint256 amount) external nonReentrant {
+    function stake(uint256 postId, uint8 side, uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) revert AmountZero();
         if (side > 1) revert InvalidSide();
         PostState storage psCheck = posts[postId];
@@ -336,7 +400,7 @@ contract StakeEngine is GovernedUpgradeable {
     ///         target > 0: desired support stake amount
     ///         target < 0: desired challenge stake amount (absolute value)
     ///         target == 0: withdraw all stakes on this post
-    function setStake(uint256 postId, int256 target) external nonReentrant {
+    function setStake(uint256 postId, int256 target) external nonReentrant whenNotPaused {
         PostState storage ps = posts[postId];
         uint256 epoch = _currentEpoch();
         _maybeSnapshot(postId, epoch);
@@ -765,5 +829,5 @@ contract StakeEngine is GovernedUpgradeable {
         q.total = total;
     }
 
-    uint256[500] private __gap;
+    uint256[499] private __gap;
 }

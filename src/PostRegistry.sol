@@ -59,6 +59,29 @@ contract PostRegistry is GovernedUpgradeable {
     ///         Default 0 means no claim exists with that hash.
     mapping(bytes32 => uint256) private claimHashToPostIdPlusOne;
 
+    // ─────────────────────────────────────────────────────────────────
+    // Pause / Guardian (patch12b)
+    // ─────────────────────────────────────────────────────────────────
+    //
+    // guardian can call pause() (fast emergency halt). Only governance
+    // can unpause(), so resuming is a deliberate multisig+timelock step.
+    address public guardian;
+    bool public paused;
+    bool internal _initializedV2;
+
+    event Paused(address indexed by);
+    event Unpaused(address indexed by);
+    event GuardianSet(address indexed oldGuardian, address indexed newGuardian);
+
+    error WhenPaused();
+    error NotGuardianOrGovernance();
+    error AlreadyInitializedV2();
+
+    modifier whenNotPaused() {
+        if (paused) revert WhenPaused();
+        _;
+    }
+
     event PostCreated(
         uint256 indexed postId,
         address indexed creator,
@@ -104,11 +127,46 @@ contract PostRegistry is GovernedUpgradeable {
         emit LinkGraphSet(linkGraph_);
     }
 
+    // -------- Pause / Guardian admin (patch12b) --------
+
+    /// @notice One-shot V2 initializer. Sets initial Guardian after
+    ///         upgrade-in-place. Only governance, only once.
+    function initializeV2(address guardian_) external onlyGovernance {
+        if (_initializedV2) revert AlreadyInitializedV2();
+        _initializedV2 = true;
+        guardian = guardian_;
+        emit GuardianSet(address(0), guardian_);
+    }
+
+    /// @notice Pause new claim/link creation. Callable by Guardian
+    ///         (fast emergency response) or by governance (deliberate).
+    function pause() external {
+        address sender = _msgSender();
+        if (sender != guardian && sender != governance) {
+            revert NotGuardianOrGovernance();
+        }
+        paused = true;
+        emit Paused(sender);
+    }
+
+    /// @notice Unpause. Governance only — slower, deliberate restore.
+    function unpause() external onlyGovernance {
+        paused = false;
+        emit Unpaused(_msgSender());
+    }
+
+    /// @notice Replace the Guardian. Governance only.
+    function setGuardian(address newGuardian) external onlyGovernance {
+        address old = guardian;
+        guardian = newGuardian;
+        emit GuardianSet(old, newGuardian);
+    }
+
     // -------- Core write methods --------
 
     function createClaim(
         string calldata text_
-    ) external returns (uint256 postId) {
+    ) external whenNotPaused returns (uint256 postId) {
         if (bytes(text_).length == 0) revert InvalidClaim();
         if (bytes(text_).length > MAX_CLAIM_LENGTH) revert ClaimTooLong(bytes(text_).length, MAX_CLAIM_LENGTH);
 
@@ -145,7 +203,7 @@ contract PostRegistry is GovernedUpgradeable {
         uint256 fromPostId,
         uint256 toPostId,
         bool isChallenge
-    ) external returns (uint256 postId) {
+    ) external whenNotPaused returns (uint256 postId) {
         if (address(linkGraph) == address(0)) revert LinkGraphNotSet();
         if (!_exists(fromPostId)) revert FromPostDoesNotExist();
         if (!_exists(toPostId)) revert ToPostDoesNotExist();
@@ -294,5 +352,5 @@ contract PostRegistry is GovernedUpgradeable {
         return postId < nextPostId;
     }
 
-    uint256[500] private __gap;
+    uint256[499] private __gap;
 }
