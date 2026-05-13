@@ -20,7 +20,7 @@ remappings = [
 ]
 
 [rpc_endpoints]
-fuji = "${AVALANCHE_FUJI_RPC}"
+fuji = "${FUJI_RPC}"
 
 [etherscan]
 # Fuji: No API key required; Foundry uses placeholder internally

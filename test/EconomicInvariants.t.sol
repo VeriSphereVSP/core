@@ -9,11 +9,9 @@ import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
-import "../src/governance/PostingFeePolicy.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockStakeRatePolicy.sol";
-import "./mocks/MockClaimActivityPolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 contract EconomicInvariantsTest is Test {
     PostRegistry registry;
@@ -23,7 +21,7 @@ contract EconomicInvariantsTest is Test {
     ProtocolViews views;
 
     MockVSP vsp;
-    PostingFeePolicy feePolicy;
+    MockProtocolPolicy policy;
 
     function _proxy(address impl, bytes memory data) internal returns (address) {
         return address(new ERC1967Proxy(impl, data));
@@ -31,17 +29,14 @@ contract EconomicInvariantsTest is Test {
 
     function setUp() public {
         vsp = new MockVSP();
-        feePolicy = new PostingFeePolicy(address(0), 100);
-
-        MockStakeRatePolicy stakeRatePolicy = new MockStakeRatePolicy();
-        MockClaimActivityPolicy activityPolicy = new MockClaimActivityPolicy();
+        policy = new MockProtocolPolicy(100);
 
         registry = PostRegistry(
             _proxy(
                 address(new PostRegistry(address(0))),
                 abi.encodeCall(
                     PostRegistry.initialize,
-                    (address(this), address(vsp), address(feePolicy))
+                    (address(this), address(vsp), address(policy))
                 )
             )
         );
@@ -58,7 +53,7 @@ contract EconomicInvariantsTest is Test {
                 address(new StakeEngine(address(0))),
                 abi.encodeCall(
                     StakeEngine.initialize,
-                    (address(this), address(vsp), address(stakeRatePolicy))
+                    (address(this), address(vsp), address(policy))
                 )
             )
         );
@@ -73,8 +68,8 @@ contract EconomicInvariantsTest is Test {
                         address(registry),
                         address(stake),
                         address(graph),
-                        address(feePolicy),
-                        address(activityPolicy)
+                        address(policy),
+                        address(policy)
                     )
                 )
             )
@@ -91,7 +86,7 @@ contract EconomicInvariantsTest is Test {
                         address(stake),
                         address(graph),
                         address(score),
-                        address(feePolicy)
+                        address(policy)
                     )
                 )
             )

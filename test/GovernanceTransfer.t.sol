@@ -8,7 +8,7 @@ import "../src/StakeEngine.sol";
 import "../src/governance/GovernedUpgradeable.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockStakeRatePolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 /// @title GovernanceTransferTest
 /// @notice Tests for the two-step proposeGovernance / acceptGovernance
@@ -20,7 +20,7 @@ import "./mocks/MockStakeRatePolicy.sol";
 contract GovernanceTransferTest is Test {
     MockVSP token;
     StakeEngine engine;
-    MockStakeRatePolicy stakeRatePolicy;
+    MockProtocolPolicy policy;
 
     address gov     = address(this);          // initial governance (deploy-time)
     address newGov  = address(0xC0FFEE);      // intended next governance (e.g. timelock)
@@ -33,7 +33,7 @@ contract GovernanceTransferTest is Test {
 
     function setUp() public {
         token = new MockVSP();
-        stakeRatePolicy = new MockStakeRatePolicy();
+        policy = new MockProtocolPolicy(0);
 
         engine = StakeEngine(
             address(
@@ -44,7 +44,7 @@ contract GovernanceTransferTest is Test {
                         (
                             gov, // governance — i.e. this test contract
                             address(token),
-                            address(stakeRatePolicy)
+                            address(policy)
                         )
                     )
                 )

@@ -10,9 +10,7 @@ import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockPostingFeePolicy.sol";
-import "./mocks/MockStakeRatePolicy.sol";
-import "./mocks/MockClaimActivityPolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 /// @title Gas Fixes Tests
 /// @notice Tests for ScoreEngine bounded fan-in and StakeEngine lot compaction.
@@ -22,7 +20,7 @@ contract GasFixesTest is Test {
     StakeEngine stakeEng;
     ScoreEngine score;
     MockVSP vsp;
-    MockPostingFeePolicy feePolicy;
+    MockProtocolPolicy policy;
 
     address alice = address(0xA11CE);
     address bob = address(0xB0B);
@@ -34,14 +32,12 @@ contract GasFixesTest is Test {
 
     function setUp() public {
         vsp = new MockVSP();
-        feePolicy = new MockPostingFeePolicy(50);
-        MockStakeRatePolicy ratePolicy = new MockStakeRatePolicy();
-        MockClaimActivityPolicy activityPolicy = new MockClaimActivityPolicy();
+        policy = new MockProtocolPolicy(50);
 
         registry = PostRegistry(
             _proxy(
                 address(new PostRegistry(address(0))),
-                abi.encodeCall(PostRegistry.initialize, (address(this), address(vsp), address(feePolicy)))
+                abi.encodeCall(PostRegistry.initialize, (address(this), address(vsp), address(policy)))
             )
         );
 
@@ -55,7 +51,7 @@ contract GasFixesTest is Test {
         stakeEng = StakeEngine(
             _proxy(
                 address(new StakeEngine(address(0))),
-                abi.encodeCall(StakeEngine.initialize, (address(this), address(vsp), address(ratePolicy)))
+                abi.encodeCall(StakeEngine.initialize, (address(this), address(vsp), address(policy)))
             )
         );
 
@@ -64,7 +60,7 @@ contract GasFixesTest is Test {
                 address(new ScoreEngine(address(0))),
                 abi.encodeCall(
                     ScoreEngine.initialize,
-                    (address(this), address(registry), address(stakeEng), address(graph), address(feePolicy), address(activityPolicy))
+                    (address(this), address(registry), address(stakeEng), address(graph), address(policy), address(policy))
                 )
             )
         );

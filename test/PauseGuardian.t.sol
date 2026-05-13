@@ -10,16 +10,14 @@ import "../src/LinkGraph.sol";
 import "../src/governance/GovernedUpgradeable.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockPostingFeePolicy.sol";
-import "./mocks/MockStakeRatePolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 contract PauseGuardianTest is Test {
     PostRegistry pr;
     StakeEngine se;
     LinkGraph lg;
     MockVSP vsp;
-    MockPostingFeePolicy feePolicy;
-    MockStakeRatePolicy ratePolicy;
+    MockProtocolPolicy policy;
 
     address governance = address(0xA110);
     address guardian   = address(0xB220);
@@ -32,13 +30,12 @@ contract PauseGuardianTest is Test {
 
     function setUp() public {
         vsp = new MockVSP();
-        feePolicy = new MockPostingFeePolicy(0);  // 0 fee for tests
-        ratePolicy = new MockStakeRatePolicy();
+        policy = new MockProtocolPolicy(0);  // 0 fee for tests
 
         pr = PostRegistry(_proxy(
             address(new PostRegistry(address(0))),
             abi.encodeCall(PostRegistry.initialize,
-                (governance, address(vsp), address(feePolicy)))
+                (governance, address(vsp), address(policy)))
         ));
 
         lg = LinkGraph(_proxy(
@@ -49,7 +46,7 @@ contract PauseGuardianTest is Test {
         se = StakeEngine(_proxy(
             address(new StakeEngine(address(0))),
             abi.encodeCall(StakeEngine.initialize,
-                (governance, address(vsp), address(ratePolicy)))
+                (governance, address(vsp), address(policy)))
         ));
 
         // Wire LinkGraph <-> PostRegistry both directions.
@@ -246,7 +243,7 @@ contract PauseGuardianTest is Test {
         PostRegistry pr2 = PostRegistry(_proxy(
             address(new PostRegistry(address(0))),
             abi.encodeCall(PostRegistry.initialize,
-                (governance, address(vsp), address(feePolicy)))
+                (governance, address(vsp), address(policy)))
         ));
 
         vm.prank(attacker);

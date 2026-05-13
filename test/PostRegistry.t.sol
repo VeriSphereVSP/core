@@ -8,17 +8,17 @@ import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockPostingFeePolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 contract PostRegistryTest is Test {
     PostRegistry registry;
     LinkGraph graph;
     MockVSP vsp;
-    MockPostingFeePolicy feePolicy;
+    MockProtocolPolicy policy;
 
     function setUp() public {
         vsp = new MockVSP();
-        feePolicy = new MockPostingFeePolicy(100);
+        policy = new MockProtocolPolicy(100);
 
         registry = PostRegistry(
             address(
@@ -26,7 +26,7 @@ contract PostRegistryTest is Test {
                     address(new PostRegistry(address(0))),
                     abi.encodeCall(
                         PostRegistry.initialize,
-                        (address(this), address(vsp), address(feePolicy))
+                        (address(this), address(vsp), address(policy))
                     )
                 )
             )

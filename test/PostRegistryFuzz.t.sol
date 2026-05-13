@@ -7,10 +7,9 @@ import "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 import "../src/interfaces/IVSPToken.sol";
-import "../src/interfaces/IPostingFeePolicy.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockPostingFeePolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 /// @title PostRegistry Fuzz Tests
 /// @notice Property-based tests for text normalization, deduplication,
@@ -22,7 +21,7 @@ contract PostRegistryFuzzTest is Test {
 
     function setUp() public {
         vsp = new MockVSP();
-        MockPostingFeePolicy feePolicy = new MockPostingFeePolicy(0); // zero fee for easy testing
+        MockProtocolPolicy policy = new MockProtocolPolicy(0); // zero fee for easy testing
 
         registry = PostRegistry(
             address(
@@ -30,7 +29,7 @@ contract PostRegistryFuzzTest is Test {
                     address(new PostRegistry(address(0))),
                     abi.encodeCall(
                         PostRegistry.initialize,
-                        (address(this), address(vsp), address(feePolicy))
+                        (address(this), address(vsp), address(policy))
                     )
                 )
             )

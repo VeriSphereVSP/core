@@ -10,9 +10,7 @@ import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockPostingFeePolicy.sol";
-import "./mocks/MockStakeRatePolicy.sol";
-import "./mocks/MockClaimActivityPolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 contract ScoreEngineTest is Test {
     PostRegistry registry;
@@ -21,14 +19,11 @@ contract ScoreEngineTest is Test {
     ScoreEngine score;
 
     MockVSP vsp;
-    MockPostingFeePolicy feePolicy;
+    MockProtocolPolicy policy;
 
     function setUp() public {
         vsp = new MockVSP();
-        feePolicy = new MockPostingFeePolicy(50);
-
-        MockStakeRatePolicy stakeRatePolicy = new MockStakeRatePolicy();
-        MockClaimActivityPolicy activityPolicy = new MockClaimActivityPolicy();
+        policy = new MockProtocolPolicy(50);
 
         registry = PostRegistry(
             address(
@@ -36,7 +31,7 @@ contract ScoreEngineTest is Test {
                     address(new PostRegistry(address(0))),
                     abi.encodeCall(
                         PostRegistry.initialize,
-                        (address(this), address(vsp), address(feePolicy))
+                        (address(this), address(vsp), address(policy))
                     )
                 )
             )
@@ -60,7 +55,7 @@ contract ScoreEngineTest is Test {
                     address(new StakeEngine(address(0))),
                     abi.encodeCall(
                         StakeEngine.initialize,
-                        (address(this), address(vsp), address(stakeRatePolicy))
+                        (address(this), address(vsp), address(policy))
                     )
                 )
             )
@@ -77,8 +72,8 @@ contract ScoreEngineTest is Test {
                             address(registry),
                             address(stake),
                             address(graph),
-                            address(feePolicy),
-                            address(activityPolicy)
+                            address(policy),
+                            address(policy)
                         )
                     )
                 )

@@ -4,8 +4,7 @@ pragma solidity ^0.8.20;
 import "./PostRegistry.sol";
 import "./LinkGraph.sol";
 import "./interfaces/IStakeEngine.sol";
-import "./interfaces/IPostingFeePolicy.sol";
-import "./interfaces/IClaimActivityPolicy.sol";
+import "./interfaces/IProtocolPolicy.sol";
 import "./governance/GovernedUpgradeable.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -31,8 +30,10 @@ contract ScoreEngine is GovernedUpgradeable {
     PostRegistry public registry;
     IStakeEngine public stake;
     LinkGraph public graph;
-    IPostingFeePolicy public feePolicy;
-    IClaimActivityPolicy public activityPolicy;
+    IProtocolPolicy public protocolPolicy;
+    /// @dev Reserved slot to preserve storage layout (was activityPolicy
+    ///      in pre-Patch-17 versions).
+    address private __reservedSlot1_unused;
 
     int256 internal constant RAY = 1e18;
     uint256 internal constant MAX_DEPTH = 32;
@@ -53,6 +54,7 @@ contract ScoreEngine is GovernedUpgradeable {
 
     event EdgeLimitsSet(uint256 maxIncoming, uint256 maxOutgoing);
     error InvalidEdgeLimit();
+    error ZeroAddressPolicy();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(
@@ -64,15 +66,15 @@ contract ScoreEngine is GovernedUpgradeable {
         address registry_,
         address stake_,
         address graph_,
-        address feePolicy_,
-        address activityPolicy_
+        address protocolPolicy_,
+        address /* reserved_unused */
     ) external initializer {
         __GovernedUpgradeable_init(governance_);
         registry = PostRegistry(registry_);
         stake = IStakeEngine(stake_);
         graph = LinkGraph(graph_);
-        feePolicy = IPostingFeePolicy(feePolicy_);
-        activityPolicy = IClaimActivityPolicy(activityPolicy_);
+        protocolPolicy = IProtocolPolicy(protocolPolicy_);
+        // Second arg reserved/unused (was activityPolicy pre-Patch-17).
         maxIncomingEdges = DEFAULT_MAX_INCOMING;
         maxOutgoingLinks = DEFAULT_MAX_OUTGOING;
     }
@@ -89,6 +91,16 @@ contract ScoreEngine is GovernedUpgradeable {
         maxIncomingEdges = maxIncoming_;
         maxOutgoingLinks = maxOutgoing_;
         emit EdgeLimitsSet(maxIncoming_, maxOutgoing_);
+    }
+
+    /// @notice Replace the ProtocolPolicy address. Governance only.
+    event ProtocolPolicySet(address indexed oldPolicy, address indexed newPolicy);
+
+    function setProtocolPolicy(address newProtocolPolicy) external onlyGovernance {
+        if (newProtocolPolicy == address(0)) revert ZeroAddressPolicy();
+        address old = address(protocolPolicy);
+        protocolPolicy = IProtocolPolicy(newProtocolPolicy);
+        emit ProtocolPolicySet(old, newProtocolPolicy);
     }
 
     // ── VS Computation ──────────────────────────────────────────
@@ -123,7 +135,7 @@ contract ScoreEngine is GovernedUpgradeable {
         (uint256 directSupport, uint256 directChallenge) = stake.getPostTotals(
             postId
         );
-        bool directlyActive = activityPolicy.isActive(
+        bool directlyActive = protocolPolicy.isActive(
             directSupport + directChallenge
         );
 
@@ -134,7 +146,7 @@ contract ScoreEngine is GovernedUpgradeable {
         ) = _sumIncomingContributions(postId, computing, depth);
 
         // Activity gate
-        if (!directlyActive && absContribution < feePolicy.postingFeeVSP()) {
+        if (!directlyActive && absContribution < protocolPolicy.postingFeeVSP()) {
             return 0;
         }
 
@@ -165,7 +177,7 @@ contract ScoreEngine is GovernedUpgradeable {
         uint256 depth
     ) internal view returns (int256 net, uint256 abs_) {
         LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(postId);
-        uint256 fee = feePolicy.postingFeeVSP();
+        uint256 fee = protocolPolicy.postingFeeVSP();
         uint256 n = inc.length;
         uint256 maxIn = maxIncomingEdges;
 
@@ -229,10 +241,10 @@ contract ScoreEngine is GovernedUpgradeable {
         uint256 fee
     ) internal view returns (int256) {
         uint256 parentTotal = _totalStake(e.fromClaimPostId);
-        if (!activityPolicy.isActive(parentTotal)) return 0;
+        if (!protocolPolicy.isActive(parentTotal)) return 0;
 
         uint256 linkStake = _totalStake(e.linkPostId);
-        if (!activityPolicy.isActive(linkStake)) return 0;
+        if (!protocolPolicy.isActive(linkStake)) return 0;
 
         // Parent VS (recursive, with cycle detection)
         int256 parentVS = _effectiveVSRay(
@@ -299,7 +311,7 @@ contract ScoreEngine is GovernedUpgradeable {
         returns (int256 contrib)
     {
         LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(targetClaimPostId);
-        uint256 fee = feePolicy.postingFeeVSP();
+        uint256 fee = protocolPolicy.postingFeeVSP();
         uint256 n = inc.length;
         uint256 maxIn = maxIncomingEdges;
 
@@ -356,7 +368,7 @@ contract ScoreEngine is GovernedUpgradeable {
     ///      link can win a top-N slot, but its stake doesn't dilute
     ///      siblings' shares (excluded from sum), and
     ///      _computeEdgeContribution will short-circuit it via
-    ///      activityPolicy.isActive.
+    ///      protocolPolicy.isActive.
     function _sumOutgoingLinkStake(
         uint256 claimPostId,
         uint256 fee

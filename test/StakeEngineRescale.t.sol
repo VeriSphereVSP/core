@@ -8,7 +8,7 @@ import "../src/StakeEngine.sol";
 import "../src/interfaces/IVSPToken.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockStakeRatePolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 /// ------------------------------------------------------------
 /// Position Rescale Tests
@@ -29,7 +29,7 @@ import "./mocks/MockStakeRatePolicy.sol";
 contract StakeEngineRescaleTest is Test {
     MockVSP token;
     StakeEngine engine;
-    MockStakeRatePolicy stakeRatePolicy;
+    MockProtocolPolicy policy;
 
     uint256 postA = 1;
 
@@ -43,7 +43,7 @@ contract StakeEngineRescaleTest is Test {
     function setUp() public {
         vm.warp(START_TIME);
         token = new MockVSP();
-        stakeRatePolicy = new MockStakeRatePolicy();
+        policy = new MockProtocolPolicy(0);
 
         engine = StakeEngine(
             address(
@@ -51,7 +51,7 @@ contract StakeEngineRescaleTest is Test {
                     address(new StakeEngine(address(0))),
                     abi.encodeCall(
                         StakeEngine.initialize,
-                        (address(this), address(token), address(stakeRatePolicy))
+                        (address(this), address(token), address(policy))
                     )
                 )
             )

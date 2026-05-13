@@ -9,11 +9,9 @@ import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
-import "../src/governance/PostingFeePolicy.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockStakeRatePolicy.sol";
-import "./mocks/MockClaimActivityPolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 contract ProtocolViewsTest is Test {
     PostRegistry registry;
@@ -23,14 +21,11 @@ contract ProtocolViewsTest is Test {
     ProtocolViews views;
 
     MockVSP vsp;
-    PostingFeePolicy feePolicy;
+    MockProtocolPolicy policy;
 
     function setUp() public {
         vsp = new MockVSP();
-        feePolicy = new PostingFeePolicy(address(0), 50);
-
-        MockStakeRatePolicy stakeRatePolicy = new MockStakeRatePolicy();
-        MockClaimActivityPolicy activityPolicy = new MockClaimActivityPolicy();
+        policy = new MockProtocolPolicy(50);
 
         // ------------------------------------------------------------
         // PostRegistry (proxy)
@@ -44,7 +39,7 @@ contract ProtocolViewsTest is Test {
                         (
                             address(this),     // governance
                             address(vsp),
-                            address(feePolicy)
+                            address(policy)
                         )
                     )
                 )
@@ -81,7 +76,7 @@ contract ProtocolViewsTest is Test {
                         (
                             address(this),           // governance
                             address(vsp),
-                            address(stakeRatePolicy)
+                            address(policy)
                         )
                     )
                 )
@@ -102,8 +97,8 @@ contract ProtocolViewsTest is Test {
                             address(registry),
                             address(stake),
                             address(graph),
-                            address(feePolicy),
-                            address(activityPolicy)
+                            address(policy),
+                            address(policy)
                         )
                     )
                 )
@@ -125,7 +120,7 @@ contract ProtocolViewsTest is Test {
                             address(stake),
                             address(graph),
                             address(score),
-                            address(feePolicy)
+                            address(policy)
                         )
                     )
                 )

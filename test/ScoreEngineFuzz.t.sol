@@ -8,11 +8,9 @@ import "../src/PostRegistry.sol";
 import "../src/LinkGraph.sol";
 import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
-import "../src/interfaces/IPostingFeePolicy.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockStakeRatePolicy.sol";
-import "./mocks/MockClaimActivityPolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 /// @title ScoreEngine Fuzz Tests
 /// @notice Property-based tests for VS computation, link propagation,
@@ -44,18 +42,14 @@ contract ScoreEngineFuzzTest is Test {
     function setUp() public {
         vsp = new MockVSP();
 
-        MockStakeRatePolicy ratePolicy = new MockStakeRatePolicy();
-        MockClaimActivityPolicy activityPolicy = new MockClaimActivityPolicy();
-
-        // Fee policy: totalStake > 0 makes a post active (mock)
-        MockPostingFeePolicy feePolicy = new MockPostingFeePolicy(FEE);
+        MockProtocolPolicy policy = new MockProtocolPolicy(FEE);
 
         registry = PostRegistry(
             _proxy(
                 address(new PostRegistry(address(0))),
                 abi.encodeCall(
                     PostRegistry.initialize,
-                    (address(this), address(vsp), address(feePolicy))
+                    (address(this), address(vsp), address(policy))
                 )
             )
         );
@@ -72,7 +66,7 @@ contract ScoreEngineFuzzTest is Test {
                 address(new StakeEngine(address(0))),
                 abi.encodeCall(
                     StakeEngine.initialize,
-                    (address(this), address(vsp), address(ratePolicy))
+                    (address(this), address(vsp), address(policy))
                 )
             )
         );
@@ -87,8 +81,8 @@ contract ScoreEngineFuzzTest is Test {
                         address(registry),
                         address(stakeEng),
                         address(graph),
-                        address(feePolicy),
-                        address(activityPolicy)
+                        address(policy),
+                        address(policy)
                     )
                 )
             )
@@ -500,18 +494,5 @@ contract ScoreEngineFuzzTest is Test {
             c2, 0,
             "latest tied link must be cut by linkPostId-ascending tiebreak"
         );
-    }
-}
-
-/// @notice Minimal mock for posting fee policy (used in ScoreEngine tests)
-contract MockPostingFeePolicy is IPostingFeePolicy {
-    uint256 public fee;
-
-    constructor(uint256 f) {
-        fee = f;
-    }
-
-    function postingFeeVSP() external view returns (uint256) {
-        return fee;
     }
 }

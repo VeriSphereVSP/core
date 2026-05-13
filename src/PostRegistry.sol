@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "./LinkGraph.sol";
 import "./interfaces/IVSPToken.sol";
-import "./interfaces/IPostingFeePolicy.sol";
+import "./interfaces/IProtocolPolicy.sol";
 import "./governance/GovernedUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -53,7 +53,7 @@ contract PostRegistry is GovernedUpgradeable {
 
     LinkGraph public linkGraph;
     IVSPToken public vspToken;
-    IPostingFeePolicy public feePolicy;
+    IProtocolPolicy public protocolPolicy;
 
     /// @notice Maps normalized content hash to postId + 1.
     ///         Default 0 means no claim exists with that hash.
@@ -74,6 +74,7 @@ contract PostRegistry is GovernedUpgradeable {
     event GuardianSet(address indexed oldGuardian, address indexed newGuardian);
 
     error WhenPaused();
+    error ZeroAddressPolicy();
     error NotGuardianOrGovernance();
     error AlreadyInitializedV2();
 
@@ -112,11 +113,11 @@ contract PostRegistry is GovernedUpgradeable {
     function initialize(
         address governance_,
         address vspToken_,
-        address feePolicy_
+        address protocolPolicy_
     ) external initializer {
         __GovernedUpgradeable_init(governance_);
         vspToken = IVSPToken(vspToken_);
-        feePolicy = IPostingFeePolicy(feePolicy_);
+        protocolPolicy = IProtocolPolicy(protocolPolicy_);
         nextPostId = 1;
     }
 
@@ -334,7 +335,7 @@ contract PostRegistry is GovernedUpgradeable {
     }
 
     function _chargeFee(uint256 postId) internal returns (uint256 fee) {
-        fee = feePolicy.postingFeeVSP();
+        fee = protocolPolicy.postingFeeVSP();
         if (fee == 0) return 0;
 
         bool ok = IERC20(address(vspToken)).transferFrom(
@@ -353,4 +354,15 @@ contract PostRegistry is GovernedUpgradeable {
     }
 
     uint256[499] private __gap;
+
+    /// @notice Replace the ProtocolPolicy address. Governance only.
+    event ProtocolPolicySet(address indexed oldPolicy, address indexed newPolicy);
+
+    function setProtocolPolicy(address newProtocolPolicy) external onlyGovernance {
+        if (newProtocolPolicy == address(0)) revert ZeroAddressPolicy();
+        address old = address(protocolPolicy);
+        protocolPolicy = IProtocolPolicy(newProtocolPolicy);
+        emit ProtocolPolicySet(old, newProtocolPolicy);
+    }
+
 }

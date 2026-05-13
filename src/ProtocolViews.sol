@@ -5,15 +5,17 @@ import "./PostRegistry.sol";
 import "./LinkGraph.sol";
 import "./ScoreEngine.sol";
 import "./interfaces/IStakeEngine.sol";
-import "./interfaces/IPostingFeePolicy.sol";
+import "./interfaces/IProtocolPolicy.sol";
 import "./governance/GovernedUpgradeable.sol";
 
 contract ProtocolViews is GovernedUpgradeable {
+
+    error ZeroAddressPolicy();
     PostRegistry public registry;
     IStakeEngine public stake;
     LinkGraph public graph;
     ScoreEngine public score;
-    IPostingFeePolicy public feePolicy;
+    IProtocolPolicy public protocolPolicy;
 
     struct ClaimSummary {
         string text;
@@ -39,14 +41,14 @@ contract ProtocolViews is GovernedUpgradeable {
         address stake_,
         address graph_,
         address score_,
-        address feePolicy_
+        address protocolPolicy_
     ) external initializer {
         __GovernedUpgradeable_init(governance_);
         registry = PostRegistry(registry_);
         stake = IStakeEngine(stake_);
         graph = LinkGraph(graph_);
         score = ScoreEngine(score_);
-        feePolicy = IPostingFeePolicy(feePolicy_);
+        protocolPolicy = IProtocolPolicy(protocolPolicy_);
     }
 
     function getClaimSummary(
@@ -58,7 +60,7 @@ contract ProtocolViews is GovernedUpgradeable {
         s.text = registry.getClaim(p.contentId);
         (s.supportStake, s.challengeStake) = stake.getPostTotals(claimPostId);
         s.totalStake = s.supportStake + s.challengeStake;
-        s.postingFee = feePolicy.postingFeeVSP();
+        s.postingFee = protocolPolicy.postingFeeVSP();
         s.isActive = s.totalStake >= s.postingFee;
         s.baseVSRay = score.baseVSRay(claimPostId);
         s.effectiveVSRay = score.effectiveVSRay(claimPostId);
@@ -67,12 +69,12 @@ contract ProtocolViews is GovernedUpgradeable {
     }
 
     function postingFeeVSP() external view returns (uint256) {
-        return feePolicy.postingFeeVSP();
+        return protocolPolicy.postingFeeVSP();
     }
 
     function isActive(uint256 postId) external view returns (bool) {
         (uint256 s, uint256 c) = stake.getPostTotals(postId);
-        return (s + c) >= feePolicy.postingFeeVSP();
+        return (s + c) >= protocolPolicy.postingFeeVSP();
     }
 
     function getBaseVSRay(uint256 postId) external view returns (int256) {
@@ -117,4 +119,15 @@ contract ProtocolViews is GovernedUpgradeable {
     }
 
         uint256[500] private __gap;
+
+    /// @notice Replace the ProtocolPolicy address. Governance only.
+    event ProtocolPolicySet(address indexed oldPolicy, address indexed newPolicy);
+
+    function setProtocolPolicy(address newProtocolPolicy) external onlyGovernance {
+        if (newProtocolPolicy == address(0)) revert ZeroAddressPolicy();
+        address old = address(protocolPolicy);
+        protocolPolicy = IProtocolPolicy(newProtocolPolicy);
+        emit ProtocolPolicySet(old, newProtocolPolicy);
+    }
+
 }

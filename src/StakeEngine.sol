@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IVSPToken.sol";
-import "./governance/StakeRatePolicy.sol";
+import "./interfaces/IProtocolPolicy.sol";
 import "./governance/GovernedUpgradeable.sol";
 
 /// @title StakeEngine (v3)
@@ -52,7 +52,7 @@ contract StakeEngine is GovernedUpgradeable {
 
     IERC20 public ERC20_TOKEN;
     IVSPToken public VSP_TOKEN;
-    StakeRatePolicy public ratePolicy;
+    IProtocolPolicy public protocolPolicy;
 
     mapping(uint256 => PostState) private posts;
 
@@ -98,6 +98,13 @@ contract StakeEngine is GovernedUpgradeable {
     uint256 private constant RAY = 1e18;
 
     uint256 private constant DEFAULT_SNAPSHOT_PERIOD = 1 days;
+
+    /// @notice Hard floor on snapshotPeriod. Prevents gas-grief at sub-hour periods.
+    uint256 public constant MIN_SNAPSHOT_PERIOD = 1 hours;
+    /// @notice Hard cap on snapshotPeriod. Prevents yield freeze at multi-year periods.
+    uint256 public constant MAX_SNAPSHOT_PERIOD = 365 days;
+    /// @notice Hard cap on sMaxDecayMaxEpochs. Prevents OOG in _projectSMaxDecay.
+    uint256 public constant MAX_SMAX_DECAY_EPOCHS = 10000;
     uint256 private constant DEFAULT_SMAX_DECAY_RATE_RAY = 9e17;  // 10% daily decay
     uint256 private constant DEFAULT_SMAX_DECAY_MAX_EPOCHS = 30;   // Full decay in ~30 days
 
@@ -114,6 +121,9 @@ contract StakeEngine is GovernedUpgradeable {
     error NoGhostLots();
     error InvalidDecayRate();
     error InvalidDecayMaxEpochs();
+    error PeriodOutOfBounds();
+    error EpochsOutOfBounds();
+    error ZeroAddressPolicy();
 
     // ------------------------------------------------------------
     // Events
@@ -165,12 +175,12 @@ contract StakeEngine is GovernedUpgradeable {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor(address trustedForwarder_) GovernedUpgradeable(trustedForwarder_) {}
 
-    function initialize(address governance_, address vspToken_, address ratePolicy_) external initializer {
+    function initialize(address governance_, address vspToken_, address protocolPolicy_) external initializer {
         if (vspToken_ == address(0)) revert ZeroAddressToken();
         __GovernedUpgradeable_init(governance_);
         ERC20_TOKEN = IERC20(vspToken_);
         VSP_TOKEN = IVSPToken(vspToken_);
-        ratePolicy = StakeRatePolicy(ratePolicy_);
+        protocolPolicy = IProtocolPolicy(protocolPolicy_);
         sMaxLastUpdatedEpoch = _currentEpoch();
         snapshotPeriod = DEFAULT_SNAPSHOT_PERIOD;
         sMaxDecayRateRay = DEFAULT_SMAX_DECAY_RATE_RAY;
@@ -182,7 +192,9 @@ contract StakeEngine is GovernedUpgradeable {
     // ------------------------------------------------------------
 
     function setSnapshotPeriod(uint256 newPeriod) external onlyGovernance {
-        if (newPeriod == 0) revert InvalidSnapshotPeriod();
+        if (newPeriod < MIN_SNAPSHOT_PERIOD || newPeriod > MAX_SNAPSHOT_PERIOD) {
+            revert PeriodOutOfBounds();
+        }
         emit SnapshotPeriodSet(snapshotPeriod, newPeriod);
         snapshotPeriod = newPeriod;
     }
@@ -197,9 +209,22 @@ contract StakeEngine is GovernedUpgradeable {
 
     /// @notice Set the max epochs of sMax decay projection. Governance-only.
     function setSMaxDecayMaxEpochs(uint256 newMax) external onlyGovernance {
-        if (newMax == 0) revert InvalidDecayMaxEpochs();
+        if (newMax == 0 || newMax > MAX_SMAX_DECAY_EPOCHS) {
+            revert EpochsOutOfBounds();
+        }
         emit SMaxDecayMaxEpochsSet(sMaxDecayMaxEpochs, newMax);
         sMaxDecayMaxEpochs = newMax;
+    }
+
+    /// @notice Replace the ProtocolPolicy address. Governance only.
+    /// @dev    Enables swapping in a new policy contract after deploy.
+    event ProtocolPolicySet(address indexed oldPolicy, address indexed newPolicy);
+
+    function setProtocolPolicy(address newProtocolPolicy) external onlyGovernance {
+        if (newProtocolPolicy == address(0)) revert ZeroAddressPolicy();
+        address old = address(protocolPolicy);
+        protocolPolicy = IProtocolPolicy(newProtocolPolicy);
+        emit ProtocolPolicySet(old, newProtocolPolicy);
     }
 
 
@@ -506,8 +531,8 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 vRay = (absVS * RAY) / T;
         uint256 participationRay = (T * RAY) / sMax;
 
-        uint256 rMin = (ratePolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
-        uint256 rMax = (ratePolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
+        uint256 rMin = (protocolPolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
+        uint256 rMax = (protocolPolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
         uint256 rBase = rMin + ((rMax - rMin) * vRay * participationRay) / (RAY * RAY);
 
         // Apply epoch gains/losses (positions that exceed sideTotal are
@@ -661,8 +686,8 @@ contract StakeEngine is GovernedUpgradeable {
         if (projSMax == 0) return (A, D);
         uint256 vRay = (absVS * RAY) / T;
         uint256 participationRay = (T * RAY) / projSMax;
-        uint256 rMin = (ratePolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
-        uint256 rMax = (ratePolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
+        uint256 rMin = (protocolPolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
+        uint256 rMax = (protocolPolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
         uint256 rBase = rMin + ((rMax - rMin) * vRay * participationRay) / (RAY * RAY);
         projS = _projectSideTotal(qs, supportWins, true, rBase);
         projC = _projectSideTotal(qc, supportWins, false, rBase);
@@ -709,8 +734,8 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 vRay = (absVS * RAY) / T;
         uint256 participationRay = (T * RAY) / projSMax;
         if (participationRay > RAY) participationRay = RAY;
-        uint256 rMin = (ratePolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
-        uint256 rMax = (ratePolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
+        uint256 rMin = (protocolPolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
+        uint256 rMax = (protocolPolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
         uint256 rBase = rMin + ((rMax - rMin) * vRay * participationRay) / (RAY * RAY);
 
         SideQueue storage mySide = isSupportSide ? qs : qc;

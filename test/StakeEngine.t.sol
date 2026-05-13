@@ -9,7 +9,7 @@ import "../src/interfaces/IVSPToken.sol";
 
 import "./mocks/MockVSP.sol";
 
-import "./mocks/MockStakeRatePolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 /// ------------------------------------------------------------
 /// StakeEngine Tests (v2 — lot consolidation + continuous positional weighting)
@@ -17,7 +17,7 @@ import "./mocks/MockStakeRatePolicy.sol";
 contract StakeEngineTest is Test {
     MockVSP token;
     StakeEngine engine;
-    MockStakeRatePolicy stakeRatePolicy;
+    MockProtocolPolicy policy;
 
     uint256 postA = 1;
     uint256 postB = 2;
@@ -27,7 +27,7 @@ contract StakeEngineTest is Test {
 
     function setUp() public {
         token = new MockVSP();
-        stakeRatePolicy = new MockStakeRatePolicy();
+        policy = new MockProtocolPolicy(0);
 
         engine = StakeEngine(
             address(
@@ -38,7 +38,7 @@ contract StakeEngineTest is Test {
                         (
                             address(this), // governance
                             address(token),
-                            address(stakeRatePolicy)
+                            address(policy)
                         )
                     )
                 )
@@ -276,7 +276,8 @@ contract StakeEngineTest is Test {
     }
 
     function test_RevertWhen_ZeroDecayMaxEpochs() public {
-        vm.expectRevert(StakeEngine.InvalidDecayMaxEpochs.selector);
+        // Post-Patch-17: bounds check throws EpochsOutOfBounds (0 || > MAX).
+        vm.expectRevert(StakeEngine.EpochsOutOfBounds.selector);
         engine.setSMaxDecayMaxEpochs(0);
     }
 
@@ -287,7 +288,9 @@ contract StakeEngineTest is Test {
 
 
     function test_RevertWhen_ZeroSnapshotPeriod() public {
-        vm.expectRevert(StakeEngine.InvalidSnapshotPeriod.selector);
+        // Post-Patch-17: bounds check throws PeriodOutOfBounds
+        // (0 < MIN_SNAPSHOT_PERIOD).
+        vm.expectRevert(StakeEngine.PeriodOutOfBounds.selector);
         engine.setSnapshotPeriod(0);
     }
 

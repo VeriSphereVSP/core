@@ -8,7 +8,7 @@ import "../src/StakeEngine.sol";
 import "../src/interfaces/IVSPToken.sol";
 
 import "./mocks/MockVSP.sol";
-import "./mocks/MockStakeRatePolicy.sol";
+import "./mocks/MockProtocolPolicy.sol";
 
 /// @title StakeEngine Fuzz Tests
 /// @notice Invariant and property-based tests for the economic core.
@@ -17,7 +17,7 @@ import "./mocks/MockStakeRatePolicy.sol";
 contract StakeEngineFuzzTest is Test {
     MockVSP token;
     StakeEngine engine;
-    MockStakeRatePolicy stakeRatePolicy;
+    MockProtocolPolicy policy;
 
     uint256 postA = 1;
 
@@ -27,7 +27,7 @@ contract StakeEngineFuzzTest is Test {
 
     function setUp() public {
         token = new MockVSP();
-        stakeRatePolicy = new MockStakeRatePolicy();
+        policy = new MockProtocolPolicy(0);
 
         engine = StakeEngine(
             address(
@@ -38,7 +38,7 @@ contract StakeEngineFuzzTest is Test {
                         (
                             address(this),
                             address(token),
-                            address(stakeRatePolicy)
+                            address(policy)
                         )
                     )
                 )

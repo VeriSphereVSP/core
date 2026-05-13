@@ -13,9 +13,7 @@ import "../src/StakeEngine.sol";
 import "../src/ScoreEngine.sol";
 import "../src/ProtocolViews.sol";
 
-import "../src/governance/PostingFeePolicy.sol";
-import "../src/governance/ClaimActivityPolicy.sol";
-import "../src/governance/StakeRatePolicy.sol";
+import "../src/governance/ProtocolPolicy.sol";
 
 /// @title Deploy
 /// @notice Deploys the full VeriSphere protocol.
@@ -53,18 +51,14 @@ contract Deploy is Script {
             deployer // admin — can be renounced later in prod
         );
 
-        PostingFeePolicy postingFeePolicy = new PostingFeePolicy(
+        // Bundled policy: stake rates + posting fee + claim activity threshold.
+        // Constructor: (timelock, rateMinRay, rateMaxRay, postingFee, minTotalStakeVSP)
+        ProtocolPolicy protocolPolicy = new ProtocolPolicy(
             address(timelock),
-            1e18
-        );
-        ClaimActivityPolicy activityPolicy = new ClaimActivityPolicy(
-            address(timelock),
-            1e18
-        );
-        StakeRatePolicy stakeRatePolicy = new StakeRatePolicy(
-            address(timelock),
-            0,                          // rMin: 0% APR floor
-            1387610638335997952          // rMax: 200% APR compounded daily
+            0,                            // rateMin: 0% APR floor
+            1387610638335997952,          // rateMax: 200% APR daily-compounded
+            1e18,                         // postingFee: 1 VSP (within [1e15, 100e18])
+            1e18                          // minTotalStake: 1 VSP (within [0, 10000e18])
         );
 
         VSPToken tokenImpl = new VSPToken(address(0));  // No ERC-2771: forwarder calls transferFrom directly
@@ -83,7 +77,7 @@ contract Deploy is Script {
             address(stakeImpl),
             abi.encodeCall(
                 StakeEngine.initialize,
-                (gov, address(token), address(stakeRatePolicy))
+                (gov, address(token), address(protocolPolicy))
             )
         );
         StakeEngine stake = StakeEngine(address(stakeProxy));
@@ -96,7 +90,7 @@ contract Deploy is Script {
             address(registryImpl),
             abi.encodeCall(
                 PostRegistry.initialize,
-                (gov, address(token), address(postingFeePolicy))
+                (gov, address(token), address(protocolPolicy))
             )
         );
         PostRegistry registry = PostRegistry(address(registryProxy));
@@ -124,8 +118,8 @@ contract Deploy is Script {
                     address(registry),
                     address(stake),
                     address(graph),
-                    address(postingFeePolicy),
-                    address(activityPolicy)
+                    address(protocolPolicy),
+                    address(0)                  // reserved (was activityPolicy pre-Patch-17)
                 )
             )
         );
@@ -142,7 +136,7 @@ contract Deploy is Script {
                     address(stake),
                     address(graph),
                     address(score),
-                    address(postingFeePolicy)
+                    address(protocolPolicy)
                 )
             )
         );
@@ -192,6 +186,8 @@ contract Deploy is Script {
             vm.toString(address(score)),
             '","ProtocolViews":"',
             vm.toString(address(viewsProxy)),
+            '","ProtocolPolicy":"',
+            vm.toString(address(protocolPolicy)),
             '"}'
         );
 

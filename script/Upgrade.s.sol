@@ -125,7 +125,7 @@ contract Upgrade is Script {
             );
 
             // Deploy new proxy + implementation
-            address _rp = address(StakeEngine(stakeEngineProxy).ratePolicy());
+            address _rp = address(StakeEngine(stakeEngineProxy).protocolPolicy());
             StakeEngine newStakeImpl = new StakeEngine(forwarderAddr);
             ERC1967Proxy newStakeProxy = new ERC1967Proxy(
                 address(newStakeImpl),
