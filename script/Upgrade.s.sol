@@ -32,7 +32,7 @@ import "../src/authority/Authority.sol";
 ///         storage-compatible upgrades and can be upgraded in-place safely.
 contract Upgrade is Script {
     function run() external {
-        uint256 pk = vm.envUint("PRIVATE_KEY");
+        uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(pk);
         bool freshStakeEngine = vm.envOr("FRESH_STAKE_ENGINE", false);
 

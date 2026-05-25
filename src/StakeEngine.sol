@@ -105,6 +105,8 @@ contract StakeEngine is GovernedUpgradeable {
     uint256 public constant MAX_SNAPSHOT_PERIOD = 365 days;
     /// @notice Hard cap on sMaxDecayMaxEpochs. Prevents OOG in _projectSMaxDecay.
     uint256 public constant MAX_SMAX_DECAY_EPOCHS = 10000;
+    // bundle05_a: G-9/G-10 bounds (10M VSP cap on stake amount and setStake target).
+    uint256 public constant MAX_STAKE_AMOUNT = 10_000_000 * 1e18;
     uint256 private constant DEFAULT_SMAX_DECAY_RATE_RAY = 9e17;  // 10% daily decay
     uint256 private constant DEFAULT_SMAX_DECAY_MAX_EPOCHS = 30;   // Full decay in ~30 days
 
@@ -114,6 +116,8 @@ contract StakeEngine is GovernedUpgradeable {
 
     error InvalidSide();
     error AmountZero();
+    error StakeAmountTooLarge(uint256 amount, uint256 max);   // bundle05_a G-9
+    error SetStakeTargetTooLarge(int256 target, uint256 max); // bundle05_a G-10
     error OppositeSideStaked();
     error NotEnoughStake();
     error ZeroAddressToken();
@@ -368,6 +372,8 @@ contract StakeEngine is GovernedUpgradeable {
     function stake(uint256 postId, uint8 side, uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) revert AmountZero();
         if (side > 1) revert InvalidSide();
+        // bundle05_a G-9: cap stake amount.
+        if (amount > MAX_STAKE_AMOUNT) revert StakeAmountTooLarge(amount, MAX_STAKE_AMOUNT);
         PostState storage psCheck = posts[postId];
         uint8 opposite = 1 - side;
         uint256 oppIdx = _getLotIndex(psCheck, _msgSender(), opposite);
@@ -426,6 +432,9 @@ contract StakeEngine is GovernedUpgradeable {
     ///         target < 0: desired challenge stake amount (absolute value)
     ///         target == 0: withdraw all stakes on this post
     function setStake(uint256 postId, int256 target) external nonReentrant whenNotPaused {
+        // bundle05_a G-10: cap |target| at MAX_STAKE_AMOUNT.
+        uint256 absT_b05a = target >= 0 ? uint256(target) : uint256(-target);
+        if (absT_b05a > MAX_STAKE_AMOUNT) revert SetStakeTargetTooLarge(target, MAX_STAKE_AMOUNT);
         PostState storage ps = posts[postId];
         uint256 epoch = _currentEpoch();
         _maybeSnapshot(postId, epoch);

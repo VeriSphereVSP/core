@@ -132,8 +132,8 @@ contract ScoreEngineFuzzTest is Test {
         uint128 support,
         uint128 challenge
     ) public {
-        uint256 sup = bound(uint256(support), 0, 1e30);
-        uint256 chal = bound(uint256(challenge), 0, 1e30);
+        uint256 sup = bound(uint256(support), 0, 1e24); // bundle05_a
+        uint256 chal = bound(uint256(challenge), 0, 1e24); // bundle05_a
         vm.assume(sup + chal > 0); // need at least some stake
 
         uint256 c = _createAndStake("bounded test", sup, chal);
@@ -153,8 +153,8 @@ contract ScoreEngineFuzzTest is Test {
         uint128 support,
         uint128 challenge
     ) public {
-        uint256 sup = bound(uint256(support), FEE, 1e30);
-        uint256 chal = bound(uint256(challenge), FEE, 1e30);
+        uint256 sup = bound(uint256(support), FEE, 1e24); // bundle05_a
+        uint256 chal = bound(uint256(challenge), FEE, 1e24); // bundle05_a
         vm.assume(sup != chal);
 
         uint256 c = _createAndStake("sign test", sup, chal);
@@ -176,8 +176,8 @@ contract ScoreEngineFuzzTest is Test {
         uint128 support,
         uint128 challenge
     ) public {
-        uint256 sup = bound(uint256(support), FEE, 1e30);
-        uint256 chal = bound(uint256(challenge), 0, 1e30);
+        uint256 sup = bound(uint256(support), FEE, 1e24); // bundle05_a
+        uint256 chal = bound(uint256(challenge), 0, 1e24); // bundle05_a
 
         uint256 c = _createAndStake("eff bounded", sup, chal);
 
@@ -193,7 +193,7 @@ contract ScoreEngineFuzzTest is Test {
     // ────────────────────────────────────────────────────────────
 
     function testFuzz_SupportOnlyIsMaxVS(uint128 amount) public {
-        uint256 amt = bound(uint256(amount), FEE, 1e30);
+        uint256 amt = bound(uint256(amount), FEE, 1e24); // bundle05_a
 
         uint256 c = _createAndStake("support only", amt, 0);
 
@@ -206,7 +206,7 @@ contract ScoreEngineFuzzTest is Test {
     // ────────────────────────────────────────────────────────────
 
     function testFuzz_ChallengeOnlyIsMinVS(uint128 amount) public {
-        uint256 amt = bound(uint256(amount), FEE, 1e30);
+        uint256 amt = bound(uint256(amount), FEE, 1e24); // bundle05_a
 
         uint256 c = _createAndStake("challenge only", 0, amt);
 
@@ -222,8 +222,8 @@ contract ScoreEngineFuzzTest is Test {
         uint128 parentChallenge,
         uint128 childSupport
     ) public {
-        uint256 pChal = bound(uint256(parentChallenge), FEE, 1e30);
-        uint256 cSup = bound(uint256(childSupport), FEE, 1e30);
+        uint256 pChal = bound(uint256(parentChallenge), FEE, 1e24); // bundle05_a
+        uint256 cSup = bound(uint256(childSupport), FEE, 1e24); // bundle05_a
 
         // Parent: challenge-only (VS < 0)
         uint256 parent = _createAndStake("bad parent", 0, pChal);
@@ -250,8 +250,8 @@ contract ScoreEngineFuzzTest is Test {
         uint128 parentSupport,
         uint128 childSupport
     ) public {
-        uint256 pSup = bound(uint256(parentSupport), FEE, 1e30);
-        uint256 cSup = bound(uint256(childSupport), FEE, 1e30);
+        uint256 pSup = bound(uint256(parentSupport), FEE, 1e24); // bundle05_a
+        uint256 cSup = bound(uint256(childSupport), FEE, 1e24); // bundle05_a
 
         // Parent: positive VS
         uint256 parent = _createAndStake("good parent", pSup, 0);
@@ -280,8 +280,8 @@ contract ScoreEngineFuzzTest is Test {
         uint128 parentSupport,
         uint128 childSupport
     ) public {
-        uint256 pSup = bound(uint256(parentSupport), FEE * 2, 1e28);
-        uint256 cSup = bound(uint256(childSupport), FEE * 2, 1e28);
+        uint256 pSup = bound(uint256(parentSupport), FEE * 2, 1e24); // bundle05_a
+        uint256 cSup = bound(uint256(childSupport), FEE * 2, 1e24); // bundle05_a
 
         // Parent: credible (positive VS)
         uint256 parent = _createAndStake("strong parent", pSup, 0);
@@ -310,9 +310,9 @@ contract ScoreEngineFuzzTest is Test {
         uint128 childSupport,
         uint128 childChallenge
     ) public {
-        uint256 pSup = bound(uint256(parentSupport), FEE * 2, 1e28);
-        uint256 cSup = bound(uint256(childSupport), FEE * 2, 1e28);
-        uint256 cChal = bound(uint256(childChallenge), FEE, 1e28);
+        uint256 pSup = bound(uint256(parentSupport), FEE * 2, 1e24); // bundle05_a
+        uint256 cSup = bound(uint256(childSupport), FEE * 2, 1e24); // bundle05_a
+        uint256 cChal = bound(uint256(childChallenge), FEE, 1e24); // bundle05_a
 
         // Parent: credible
         uint256 parent = _createAndStake("helper parent", pSup, 0);
@@ -339,8 +339,8 @@ contract ScoreEngineFuzzTest is Test {
         uint128 stakeA,
         uint128 stakeB
     ) public {
-        uint256 sA = bound(uint256(stakeA), FEE * 2, 1e28);
-        uint256 sB = bound(uint256(stakeB), FEE * 2, 1e28);
+        uint256 sA = bound(uint256(stakeA), FEE * 2, 1e24); // bundle05_a
+        uint256 sB = bound(uint256(stakeB), FEE * 2, 1e24); // bundle05_a
 
         uint256 claimA = _createAndStake("claim A cycle", sA, 0);
         uint256 claimB = _createAndStake("claim B cycle", sB, 0);
@@ -378,8 +378,8 @@ contract ScoreEngineFuzzTest is Test {
         uint128 support,
         uint128 challenge
     ) public {
-        uint256 sup = bound(uint256(support), FEE, 1e30);
-        uint256 chal = bound(uint256(challenge), 0, 1e30);
+        uint256 sup = bound(uint256(support), FEE, 1e24); // bundle05_a
+        uint256 chal = bound(uint256(challenge), 0, 1e24); // bundle05_a
 
         uint256 c = _createAndStake("no-link sign", sup, chal);
 

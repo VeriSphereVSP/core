@@ -342,10 +342,10 @@ contract StakeEngineRescaleTest is Test {
     function testFuzz_PositionInvariantAfterSnapshot(
         uint128 aliceAmt, uint128 bobAmt, uint128 aliceWithdraw, uint128 challenge
     ) public {
-        uint256 a = bound(uint256(aliceAmt), 1e18, 1e28);
-        uint256 b = bound(uint256(bobAmt), 1e18, 1e28);
+        uint256 a = bound(uint256(aliceAmt), 1e18, 1e24); // bundle05_a
+        uint256 b = bound(uint256(bobAmt), 1e18, 1e24); // bundle05_a
         uint256 aw = bound(uint256(aliceWithdraw), 0, a);
-        uint256 ch = bound(uint256(challenge), 1e18, 1e28);
+        uint256 ch = bound(uint256(challenge), 1e18, 1e24); // bundle05_a
         vm.assume((a - aw + b) != ch);
 
         vm.prank(alice);

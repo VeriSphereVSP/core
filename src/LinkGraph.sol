@@ -17,6 +17,8 @@ contract LinkGraph is GovernedUpgradeable {
         uint256 toClaimPostId,
         bool isChallenge
     );
+    error OutgoingLinkLimitExceeded(uint256 fromClaimPostId, uint256 currentCount); // bundle05_c
+    error IncomingLinkLimitExceeded(uint256 toClaimPostId, uint256 currentCount);   // bundle05_c
 
     event RegistrySet(address indexed registry);
     event EdgeAdded(
@@ -47,6 +49,8 @@ contract LinkGraph is GovernedUpgradeable {
     mapping(uint256 => uint256) private _unused_visited;
     uint256 private _unused_visitToken;
     uint256 public constant MAX_VISITS = 4096; // kept for ABI compat
+    uint256 public constant MAX_OUTGOING_LINKS_PER_CLAIM = 1000; // bundle05_c
+    uint256 public constant MAX_INCOMING_LINKS_PER_CLAIM = 1000; // bundle05_c
 
     // Duplicate edge detection: keccak256(from, to, isChallenge) => true
     mapping(bytes32 => bool) private edgeExists;
@@ -87,6 +91,20 @@ contract LinkGraph is GovernedUpgradeable {
             revert DuplicateEdge(fromClaimPostId, toClaimPostId, isChallenge);
 
         edgeExists[edgeKey] = true;
+
+        // bundle05_c: cap per-claim edges to prevent unbounded array growth.
+        // Both checks run before any .push() — atomic revert-or-add. Existing
+        // edges above the cap are grandfathered; the check applies only to new
+        // addEdge calls. >= cap means the 1000th push is rejected, so the
+        // stored length never exceeds MAX_*_LINKS_PER_CLAIM.
+        uint256 outLen_b05c = outgoing[fromClaimPostId].length;
+        if (outLen_b05c >= MAX_OUTGOING_LINKS_PER_CLAIM) {
+            revert OutgoingLinkLimitExceeded(fromClaimPostId, outLen_b05c);
+        }
+        uint256 inLen_b05c = incoming[toClaimPostId].length;
+        if (inLen_b05c >= MAX_INCOMING_LINKS_PER_CLAIM) {
+            revert IncomingLinkLimitExceeded(toClaimPostId, inLen_b05c);
+        }
 
         outgoing[fromClaimPostId].push(
             Edge({

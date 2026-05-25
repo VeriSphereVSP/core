@@ -140,7 +140,7 @@ contract StakeEngineTest is Test {
     /// ------------------------------------------------------------
 
     function testWinningSideNeverDecreases() public {
-        uint256 stakeAmount = 1e30;
+        uint256 stakeAmount = 1e23; // bundle05_a
         engine.stake(postA, 0, stakeAmount);
 
         vm.warp(block.timestamp + 3 days);

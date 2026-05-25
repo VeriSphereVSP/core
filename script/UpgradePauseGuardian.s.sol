@@ -9,7 +9,7 @@ import "../src/StakeEngine.sol";
 
 contract UpgradePauseGuardian is Script {
     function run() external {
-        uint256 pk = vm.envUint("PRIVATE_KEY");
+        uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(pk);
 
         // Read existing addresses

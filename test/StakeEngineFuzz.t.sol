@@ -66,9 +66,9 @@ contract StakeEngineFuzzTest is Test {
         uint128 challenge
     ) public {
         // Bound to reasonable range — avoid zero (reverts) and overflow
-        uint256 sA = bound(uint256(supportA), 1, 1e30);
-        uint256 sB = bound(uint256(supportB), 1, 1e30);
-        uint256 chal = bound(uint256(challenge), 1, 1e30);
+        uint256 sA = bound(uint256(supportA), 1, 1e24); // bundle05_a
+        uint256 sB = bound(uint256(supportB), 1, 1e24); // bundle05_a
+        uint256 chal = bound(uint256(challenge), 1, 1e24); // bundle05_a
 
         engine.stake(postA, 0, sA);
 
@@ -95,8 +95,8 @@ contract StakeEngineFuzzTest is Test {
         uint128 challengeAmt,
         uint16 daysElapsed
     ) public {
-        uint256 sup = bound(uint256(supportAmt), 1e18, 1e30);
-        uint256 chal = bound(uint256(challengeAmt), 1e18, 1e30);
+        uint256 sup = bound(uint256(supportAmt), 1e18, 1e24); // bundle05_a
+        uint256 chal = bound(uint256(challengeAmt), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 365);
 
         // Ensure sides are unequal (VS != 0)
@@ -129,7 +129,7 @@ contract StakeEngineFuzzTest is Test {
         uint128 amount,
         uint16 daysElapsed
     ) public {
-        uint256 amt = bound(uint256(amount), 1e18, 1e30);
+        uint256 amt = bound(uint256(amount), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 365);
 
         engine.stake(postA, 0, amt);
@@ -154,7 +154,7 @@ contract StakeEngineFuzzTest is Test {
         uint128 stakeAmt,
         uint128 withdrawAmt
     ) public {
-        uint256 staked = bound(uint256(stakeAmt), 1e18, 1e30);
+        uint256 staked = bound(uint256(stakeAmt), 1e18, 1e24); // bundle05_a
         uint256 withdrawn = bound(uint256(withdrawAmt), 1, staked);
 
         engine.stake(postA, 0, staked);
@@ -174,8 +174,8 @@ contract StakeEngineFuzzTest is Test {
         uint128 stakeAmt,
         uint128 extra
     ) public {
-        uint256 staked = bound(uint256(stakeAmt), 1e18, 1e30);
-        uint256 tooMuch = staked + bound(uint256(extra), 1, 1e30);
+        uint256 staked = bound(uint256(stakeAmt), 1e18, 1e24); // bundle05_a
+        uint256 tooMuch = staked + bound(uint256(extra), 1, 1e24); // bundle05_a
 
         engine.stake(postA, 0, staked);
 
@@ -194,8 +194,8 @@ contract StakeEngineFuzzTest is Test {
         uint128 first,
         uint128 second
     ) public {
-        uint256 amt1 = bound(uint256(first), 1e18, 1e30);
-        uint256 amt2 = bound(uint256(second), 1e18, 1e30);
+        uint256 amt1 = bound(uint256(first), 1e18, 1e24); // bundle05_a
+        uint256 amt2 = bound(uint256(second), 1e18, 1e24); // bundle05_a
 
         engine.stake(postA, 0, amt1);
         engine.stake(postA, 0, amt2);
@@ -222,7 +222,7 @@ contract StakeEngineFuzzTest is Test {
         uint128 stakeAmt,
         uint16 daysElapsed
     ) public {
-        uint256 amt = bound(uint256(stakeAmt), 1e18, 1e30);
+        uint256 amt = bound(uint256(stakeAmt), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 3650);
 
         engine.stake(postA, 0, amt);
@@ -252,8 +252,8 @@ contract StakeEngineFuzzTest is Test {
         uint128 challengeAmt,
         uint16 daysElapsed
     ) public {
-        uint256 sup = bound(uint256(supportAmt), 1e18, 1e30);
-        uint256 chal = bound(uint256(challengeAmt), 1e18, 1e30);
+        uint256 sup = bound(uint256(supportAmt), 1e18, 1e24); // bundle05_a
+        uint256 chal = bound(uint256(challengeAmt), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 30);
 
         vm.assume(sup != chal);
@@ -287,8 +287,8 @@ contract StakeEngineFuzzTest is Test {
         uint128 challengeAmt,
         uint16 daysElapsed
     ) public {
-        uint256 sup = bound(uint256(supportAmt), 1e18, 1e30);
-        uint256 chal = bound(uint256(challengeAmt), 1e18, 1e30);
+        uint256 sup = bound(uint256(supportAmt), 1e18, 1e24); // bundle05_a
+        uint256 chal = bound(uint256(challengeAmt), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 30);
 
         vm.assume(sup != chal);
@@ -316,8 +316,8 @@ contract StakeEngineFuzzTest is Test {
         uint128 supportAmt,
         uint128 challengeAmt
     ) public {
-        uint256 sup = bound(uint256(supportAmt), 1e18, 1e30);
-        uint256 chal = bound(uint256(challengeAmt), 1e18, 1e30);
+        uint256 sup = bound(uint256(supportAmt), 1e18, 1e24); // bundle05_a
+        uint256 chal = bound(uint256(challengeAmt), 1e18, 1e24); // bundle05_a
         vm.assume(sup != chal);
 
         engine.stake(postA, 0, sup);
@@ -348,7 +348,7 @@ contract StakeEngineFuzzTest is Test {
         uint8 smallMultiplier,
         uint16 daysElapsed
     ) public {
-        uint256 big = bound(uint256(bigSide), 1e24, 1e30);
+        uint256 big = bound(uint256(bigSide), 1e23, 1e24); // bundle05_a
         // Small side is 1/100 to 1/2 of big side
         uint256 divisor = bound(uint256(smallMultiplier), 2, 100);
         uint256 small = big / divisor;
@@ -380,7 +380,7 @@ contract StakeEngineFuzzTest is Test {
         uint128 amount,
         uint16 daysElapsed
     ) public {
-        uint256 amt = bound(uint256(amount), 1e18, 1e28);
+        uint256 amt = bound(uint256(amount), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 2, 180);
 
         // Alice stakes first (gets better position)

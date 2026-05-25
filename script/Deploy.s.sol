@@ -22,7 +22,7 @@ import "../src/governance/ProtocolPolicy.sol";
 ///         Otherwise, deployer EOA retains ownership for fast iteration.
 contract Deploy is Script {
     function run() external {
-        uint256 pk = vm.envUint("PRIVATE_KEY");
+        uint256 pk = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(pk);
         bool isProduction = vm.envOr("PRODUCTION", false);
 

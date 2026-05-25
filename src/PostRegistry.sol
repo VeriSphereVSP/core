@@ -94,7 +94,7 @@ contract PostRegistry is GovernedUpgradeable {
     error InvalidClaim();
     error ClaimTooLong(uint256 length, uint256 max);
 
-    uint256 public constant MAX_CLAIM_LENGTH = 2000;
+    uint256 public constant MAX_CLAIM_LENGTH = 1000; // bundle05_d: tightened from 2000
     error DuplicateClaim(uint256 existingPostId);
     error DuplicateLink(uint256 fromPostId, uint256 toPostId, bool isChallenge);
     error FromPostDoesNotExist();
