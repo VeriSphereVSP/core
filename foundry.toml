@@ -16,7 +16,8 @@ fs_permissions = [
 
 remappings = [
     "openzeppelin-contracts/=lib/openzeppelin-contracts/",
-    "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/"
+    "@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/",
+    "@prb/math/=lib/prb-math/"
 ]
 
 [rpc_endpoints]

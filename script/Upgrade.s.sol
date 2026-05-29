@@ -100,7 +100,13 @@ contract Upgrade is Script {
         }
 
         // ── VSPToken ─────────────────────────────────────────────
-        VSPToken newTokenImpl = new VSPToken(address(0));  // No ERC-2771: forwarder calls transferFrom directly
+        VSPToken newTokenImpl = new VSPToken(
+            address(0), // forwarder: VSP uses no ERC-2771 (forwarder calls transferFrom directly)
+            vm.envOr("VSP_INCEPTION_TIMESTAMP", uint256(1778544000)),
+            vm.envOr("VSP_INCEPTION_SUPPLY", uint256(1000 * 1e18)),
+            vm.envOr("VSP_GROWTH_BASE_PER_YEAR", uint256(10 * 1e18)),
+            vm.envOr("VSP_STAKE_ENGINE_ADDRESS", address(0)) // patch_bundle10_5_part2a_stakeengine_exempt
+        ); // patch_bundle10_5_part2a_timecap: 4-arg constructor
         UUPSUpgradeable(vspTokenAddr).upgradeToAndCall(
             address(newTokenImpl),
             bytes("")
