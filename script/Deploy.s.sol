@@ -62,7 +62,18 @@ contract Deploy is Script {
         );
 
         VSPToken tokenImpl = new VSPToken(
-            address(0), // forwarder: VSP uses no ERC-2771 (forwarder calls transferFrom directly)
+            // patch_bundle10_5_part1_fixup_doc_sync_sol: DO NOT CHANGE the address(0) below.
+            // VSPToken MUST NOT trust any ERC-2771 forwarder. The Forwarder
+            // calls vspToken.safeTransferFrom(user, treasury, fee) directly in
+            // _collectFee — a plain ERC20 call, NOT a meta-tx with an appended
+            // user address. If trustedForwarder != 0x0, VSPToken's ERC2771
+            // _msgSender() pulls the trailing 20 bytes of calldata as the
+            // spender (garbage, since this is a plain transferFrom), the
+            // allowance check fails, and EVERY meta-tx through the Forwarder
+            // reverts at ~77K gas. Confirmed on Fuji 2026-05-29 (Bundle 10.5
+            // Part 1 fixup ceremony — see THREAT-MODEL §4.6 F11/G-47).
+            // The post-deploy require() below enforces this at deploy time.
+            address(0),
             vm.envOr("VSP_INCEPTION_TIMESTAMP", uint256(1778544000)),
             vm.envOr("VSP_INCEPTION_SUPPLY", uint256(1000 * 1e18)),
             vm.envOr("VSP_GROWTH_BASE_PER_YEAR", uint256(10 * 1e18)),
@@ -73,6 +84,14 @@ contract Deploy is Script {
             abi.encodeCall(VSPToken.initialize, (address(authority)))
         );
         VSPToken token = VSPToken(address(tokenProxy));
+
+        // patch_bundle10_5_part1_fixup_doc_sync_sol: deploy-time tripwire for the bug fixed on Fuji 2026-05-29.
+        // If a future change to the constructor arg above ever sets a non-zero
+        // forwarder, the deploy itself reverts here. See THREAT-MODEL §4.6 F11/G-47.
+        require(
+            token.trustedForwarder() == address(0),
+            "Deploy: VSPToken must not trust any forwarder"
+        );
 
         authority.setMinter(gov, true);
         authority.setBurner(gov, true);
