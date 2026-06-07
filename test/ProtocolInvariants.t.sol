@@ -51,13 +51,7 @@ contract ProtocolHandler is Test {
     uint256 public ghostDeposited;
     uint256 public ghostWithdrawn;
 
-    constructor(
-        PostRegistry _registry,
-        StakeEngine _stakeEng,
-        LinkGraph _graph,
-        ScoreEngine _score,
-        MockVSP _vsp
-    ) {
+    constructor(PostRegistry _registry, StakeEngine _stakeEng, LinkGraph _graph, ScoreEngine _score, MockVSP _vsp) {
         registry = _registry;
         stakeEng = _stakeEng;
         graph = _graph;
@@ -79,14 +73,24 @@ contract ProtocolHandler is Test {
     }
 
     // ───────────────────────── view getters (not fuzzed) ─────────────────────────
-    function getClaims() external view returns (uint256[] memory) { return claims; }
-    function getAllPosts() external view returns (uint256[] memory) { return allPosts; }
-    function getActors() external view returns (address[] memory) { return actors; }
+    function getClaims() external view returns (uint256[] memory) {
+        return claims;
+    }
+
+    function getAllPosts() external view returns (uint256[] memory) {
+        return allPosts;
+    }
+
+    function getActors() external view returns (address[] memory) {
+        return actors;
+    }
 
     // ───────────────────────── fuzzed actions ─────────────────────────
 
     function hCreateClaim(uint256 aSeed) public {
-        if (claims.length >= MAX_CLAIMS) return;
+        if (claims.length >= MAX_CLAIMS) {
+            return;
+        }
         address actor = actors[aSeed % actors.length];
         string memory t = string(abi.encodePacked("c", vm.toString(claimCounter++)));
         vm.prank(actor);
@@ -97,12 +101,18 @@ contract ProtocolHandler is Test {
     }
 
     function hCreateLink(uint256 fSeed, uint256 tSeed, uint256 aSeed, bool isChallenge) public {
-        if (claims.length < 2) return;
-        if (allPosts.length >= MAX_POSTS) return;
+        if (claims.length < 2) {
+            return;
+        }
+        if (allPosts.length >= MAX_POSTS) {
+            return;
+        }
         address actor = actors[aSeed % actors.length];
         uint256 from = claims[fSeed % claims.length];
         uint256 to = claims[tSeed % claims.length];
-        if (from == to) return; // SelfLoop guard
+        if (from == to) {
+            return; // SelfLoop guard
+        }
         vm.prank(actor);
         try registry.createLink(from, to, isChallenge) returns (uint256 id) {
             allPosts.push(id); // link-post is itself stakeable
@@ -110,7 +120,9 @@ contract ProtocolHandler is Test {
     }
 
     function hStake(uint256 pSeed, uint256 aSeed, uint8 sideIn, uint256 amtSeed) public {
-        if (allPosts.length == 0) return;
+        if (allPosts.length == 0) {
+            return;
+        }
         address actor = actors[aSeed % actors.length];
         uint256 post = allPosts[pSeed % allPosts.length];
 
@@ -131,16 +143,22 @@ contract ProtocolHandler is Test {
     }
 
     function hWithdraw(uint256 pSeed, uint256 aSeed, uint256 amtSeed) public {
-        if (allPosts.length == 0) return;
+        if (allPosts.length == 0) {
+            return;
+        }
         address actor = actors[aSeed % actors.length];
         uint256 post = allPosts[pSeed % allPosts.length];
 
         uint8 chosen = sidePlusOne[actor][post];
-        if (chosen == 0) return;
+        if (chosen == 0) {
+            return;
+        }
         uint8 side = chosen - 1;
 
         uint256 avail = stakeEng.getUserStake(actor, post, side);
-        if (avail == 0) return;
+        if (avail == 0) {
+            return;
+        }
         uint256 amt = bound(amtSeed, 1, avail);
 
         vm.prank(actor);
@@ -234,9 +252,7 @@ contract ProtocolInvariantsTest is Test {
     /// INV-1: the StakeEngine is never insolvent (holds >= sum of all positions).
     function invariant_engineSolvent() public view {
         assertGe(
-            vsp.balanceOf(address(stakeEng)),
-            _sumAllPositions(),
-            "StakeEngine insolvent: balance < sum of positions"
+            vsp.balanceOf(address(stakeEng)), _sumAllPositions(), "StakeEngine insolvent: balance < sum of positions"
         );
     }
 

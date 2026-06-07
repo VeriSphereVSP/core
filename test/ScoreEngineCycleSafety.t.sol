@@ -60,27 +60,18 @@ contract ScoreEngineCycleSafetyTest is Test {
         registry = PostRegistry(
             _proxy(
                 address(new PostRegistry(address(0))),
-                abi.encodeCall(
-                    PostRegistry.initialize,
-                    (address(this), address(vsp), address(policy))
-                )
+                abi.encodeCall(PostRegistry.initialize, (address(this), address(vsp), address(policy)))
             )
         );
 
         graph = LinkGraph(
-            _proxy(
-                address(new LinkGraph(address(0))),
-                abi.encodeCall(LinkGraph.initialize, (address(this)))
-            )
+            _proxy(address(new LinkGraph(address(0))), abi.encodeCall(LinkGraph.initialize, (address(this))))
         );
 
         stakeEng = StakeEngine(
             _proxy(
                 address(new StakeEngine(address(0))),
-                abi.encodeCall(
-                    StakeEngine.initialize,
-                    (address(this), address(vsp), address(policy))
-                )
+                abi.encodeCall(StakeEngine.initialize, (address(this), address(vsp), address(policy)))
             )
         );
 
@@ -119,16 +110,17 @@ contract ScoreEngineCycleSafetyTest is Test {
     /// @dev Create a claim and stake the support side so it is active.
     function _claim(string memory text, uint256 support) internal returns (uint256 postId) {
         postId = registry.createClaim(text);
-        if (support > 0) stakeEng.stake(postId, 0, support);
+        if (support > 0) {
+            stakeEng.stake(postId, 0, support);
+        }
     }
 
     /// @dev Create a parent->child link and stake the link-post so the edge has weight.
-    function _link(uint256 from, uint256 to, bool isChallenge, uint256 linkStake)
-        internal
-        returns (uint256 linkId)
-    {
+    function _link(uint256 from, uint256 to, bool isChallenge, uint256 linkStake) internal returns (uint256 linkId) {
         linkId = registry.createLink(from, to, isChallenge);
-        if (linkStake > 0) stakeEng.stake(linkId, 0, linkStake);
+        if (linkStake > 0) {
+            stakeEng.stake(linkId, 0, linkStake);
+        }
     }
 
     function _bounded(int256 vs) internal pure {
