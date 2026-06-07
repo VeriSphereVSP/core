@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# VeriSphere pre-push hook — mirrors the GitHub CI gate locally.
+# Blocks a push on: unformatted source, or a build break.
+# Opt-in heavier checks:  RUN_TESTS=1 git push   /   RUN_STORAGE=1 git push
+# Emergency bypass:        git push --no-verify
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 1
+export FOUNDRY_PROFILE="${FOUNDRY_PROFILE:-ci}"
+
+if ! command -v forge >/dev/null 2>&1; then
+  echo "[pre-push] forge not on PATH — skipping CI checks (install Foundry to enable)"
+  exit 0
+fi
+
+tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+fail=0
+
+echo "[pre-push] forge fmt --check"
+if ! forge fmt --check >"$tmp/fmt" 2>&1; then
+  echo "[pre-push] BLOCKED: source is not formatted to 'forge fmt' style."
+  echo "           fix:   forge fmt        (safer: bash script/vsp-fmt-verify.sh if installed)"
+  fail=1
+fi
+
+echo "[pre-push] forge build"
+if ! forge build >"$tmp/build" 2>&1; then
+  echo "[pre-push] BLOCKED: build failed:"; tail -20 "$tmp/build" | sed 's/^/           /'
+  fail=1
+fi
+
+if [ "${RUN_TESTS:-0}" = "1" ]; then
+  echo "[pre-push] forge test"
+  if ! forge test >"$tmp/test" 2>&1; then
+    echo "[pre-push] BLOCKED: tests failed:"; tail -30 "$tmp/test" | sed 's/^/           /'
+    fail=1
+  fi
+fi
+
+if [ "${RUN_STORAGE:-0}" = "1" ] && [ -x script/storage-layout/check.sh ]; then
+  echo "[pre-push] storage-layout gate"
+  if ! bash script/storage-layout/check.sh --check >"$tmp/storage" 2>&1; then
+    echo "[pre-push] BLOCKED: storage-layout gate failed:"; tail -20 "$tmp/storage" | sed 's/^/           /'
+    fail=1
+  fi
+fi
+
+if [ "$fail" -eq 0 ]; then
+  echo "[pre-push] OK — checks passed."
+else
+  echo "[pre-push] push blocked. Fix the above, or bypass with: git push --no-verify"
+fi
+exit "$fail"
