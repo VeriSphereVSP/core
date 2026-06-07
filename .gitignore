@@ -25,6 +25,11 @@ objects/
 
 # Allow tracked submodules
 lib/*
+# oz_v5_submodule: track the real submodule libs despite the lib/* ignore above
+!lib/forge-std
+!lib/openzeppelin-contracts
+!lib/openzeppelin-contracts-upgradeable
+!lib/prb-math
 
 # OS
 .DS_Store
