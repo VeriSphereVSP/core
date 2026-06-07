@@ -13,21 +13,10 @@ contract UpgradePauseGuardian is Script {
         address deployer = vm.addr(pk);
 
         // Read existing addresses
-        string memory jsonFile = vm.readFile(
-            "broadcast/Deploy.s.sol/43113/addresses.json"
-        );
-        address forwarderAddr = vm.envOr(
-            "FORWARDER_ADDRESS",
-            _tryParseForwarder(jsonFile)
-        );
-        address postRegistryProxy = vm.parseJsonAddress(
-            jsonFile,
-            ".PostRegistry"
-        );
-        address stakeEngineProxy = vm.parseJsonAddress(
-            jsonFile,
-            ".StakeEngine"
-        );
+        string memory jsonFile = vm.readFile("broadcast/Deploy.s.sol/43113/addresses.json");
+        address forwarderAddr = vm.envOr("FORWARDER_ADDRESS", _tryParseForwarder(jsonFile));
+        address postRegistryProxy = vm.parseJsonAddress(jsonFile, ".PostRegistry");
+        address stakeEngineProxy = vm.parseJsonAddress(jsonFile, ".StakeEngine");
 
         // Guardian for practice = deployer EOA.
         address guardian = vm.envOr("GUARDIAN_ADDRESS", deployer);
@@ -45,20 +34,16 @@ contract UpgradePauseGuardian is Script {
         PostRegistry newPRImpl = new PostRegistry(forwarderAddr);
         console.log("New PostRegistry impl:", address(newPRImpl));
 
-        UUPSUpgradeable(postRegistryProxy).upgradeToAndCall(
-            address(newPRImpl),
-            abi.encodeCall(PostRegistry.initializeV2, (guardian))
-        );
+        UUPSUpgradeable(postRegistryProxy)
+            .upgradeToAndCall(address(newPRImpl), abi.encodeCall(PostRegistry.initializeV2, (guardian)));
         console.log("PostRegistry: upgraded + initializeV2(guardian)");
 
         // ── StakeEngine ─────────────────────────────────────────────
         StakeEngine newSEImpl = new StakeEngine(forwarderAddr);
         console.log("New StakeEngine impl:", address(newSEImpl));
 
-        UUPSUpgradeable(stakeEngineProxy).upgradeToAndCall(
-            address(newSEImpl),
-            abi.encodeCall(StakeEngine.initializeV2, (guardian))
-        );
+        UUPSUpgradeable(stakeEngineProxy)
+            .upgradeToAndCall(address(newSEImpl), abi.encodeCall(StakeEngine.initializeV2, (guardian)));
         console.log("StakeEngine: upgraded + initializeV2(guardian)");
 
         vm.stopBroadcast();
@@ -67,9 +52,7 @@ contract UpgradePauseGuardian is Script {
         console.log("=== Upgrade complete ===");
     }
 
-    function _tryParseForwarder(
-        string memory json
-    ) internal view returns (address) {
+    function _tryParseForwarder(string memory json) internal view returns (address) {
         try vm.parseJsonAddress(json, ".Forwarder") returns (address f) {
             return f;
         } catch {

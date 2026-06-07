@@ -94,7 +94,7 @@ contract StakeEngineTest is Test {
         uint256 userStake = engine.getUserStake(address(this), postA, 0);
         assertEq(userStake, 120 ether);
 
-        (uint256 s, ) = engine.getPostTotals(postA);
+        (uint256 s,) = engine.getPostTotals(postA);
         assertEq(s, 120 ether);
     }
 
@@ -119,7 +119,7 @@ contract StakeEngineTest is Test {
         assertEq(engine.getUserStake(address(this), postA, 0), 100 ether);
         assertEq(engine.getUserStake(alice, postA, 0), 50 ether);
 
-        (uint256 s, ) = engine.getPostTotals(postA);
+        (uint256 s,) = engine.getPostTotals(postA);
         assertEq(s, 150 ether);
     }
 
@@ -192,7 +192,7 @@ contract StakeEngineTest is Test {
         vm.warp(block.timestamp + 3 days);
 
         // getPostTotals should project gains without writing state
-        (uint256 s, ) = engine.getPostTotals(postA);
+        (uint256 s,) = engine.getPostTotals(postA);
         assertGe(s, 100 ether, "View should project gains");
     }
 
@@ -221,7 +221,7 @@ contract StakeEngineTest is Test {
         engine.stake(postA, 0, 1 ether);
 
         // After snapshot, winning side should have grown
-        (uint256 s, ) = engine.getPostTotals(postA);
+        (uint256 s,) = engine.getPostTotals(postA);
         assertGe(s, 101 ether, "Snapshot should have applied gains");
     }
 
@@ -254,7 +254,6 @@ contract StakeEngineTest is Test {
     /// Governance: snapshot period and sMax decay
     /// ------------------------------------------------------------
 
-
     function testGovernanceCanSetSMaxDecayRate() public {
         engine.setSMaxDecayRate(990e15);
         assertEq(engine.sMaxDecayRateRay(), 990e15);
@@ -285,7 +284,6 @@ contract StakeEngineTest is Test {
         engine.setSnapshotPeriod(12 hours);
         assertEq(engine.snapshotPeriod(), 12 hours);
     }
-
 
     function test_RevertWhen_ZeroSnapshotPeriod() public {
         // Post-Patch-17: bounds check throws PeriodOutOfBounds

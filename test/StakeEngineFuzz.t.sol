@@ -33,14 +33,7 @@ contract StakeEngineFuzzTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new StakeEngine(address(0))),
-                    abi.encodeCall(
-                        StakeEngine.initialize,
-                        (
-                            address(this),
-                            address(token),
-                            address(policy)
-                        )
-                    )
+                    abi.encodeCall(StakeEngine.initialize, (address(this), address(token), address(policy)))
                 )
             )
         );
@@ -60,11 +53,7 @@ contract StakeEngineFuzzTest is Test {
 
     /// @notice After any combination of stakes, getPostTotals must
     ///         equal the actual token balance changes.
-    function testFuzz_TotalsMatchStakes(
-        uint128 supportA,
-        uint128 supportB,
-        uint128 challenge
-    ) public {
+    function testFuzz_TotalsMatchStakes(uint128 supportA, uint128 supportB, uint128 challenge) public {
         // Bound to reasonable range — avoid zero (reverts) and overflow
         uint256 sA = bound(uint256(supportA), 1, 1e24); // bundle05_a
         uint256 sB = bound(uint256(supportB), 1, 1e24); // bundle05_a
@@ -90,11 +79,7 @@ contract StakeEngineFuzzTest is Test {
     // ────────────────────────────────────────────────────────────
 
     /// @notice The majority side must not lose value from snapshots.
-    function testFuzz_WinningSideNeverDecreases(
-        uint128 supportAmt,
-        uint128 challengeAmt,
-        uint16 daysElapsed
-    ) public {
+    function testFuzz_WinningSideNeverDecreases(uint128 supportAmt, uint128 challengeAmt, uint16 daysElapsed) public {
         uint256 sup = bound(uint256(supportAmt), 1e18, 1e24); // bundle05_a
         uint256 chal = bound(uint256(challengeAmt), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 365);
@@ -125,10 +110,7 @@ contract StakeEngineFuzzTest is Test {
     // ────────────────────────────────────────────────────────────
 
     /// @notice When support == challenge, VS == 0, no growth or decay.
-    function testFuzz_BalancedStakesNoChange(
-        uint128 amount,
-        uint16 daysElapsed
-    ) public {
+    function testFuzz_BalancedStakesNoChange(uint128 amount, uint16 daysElapsed) public {
         uint256 amt = bound(uint256(amount), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 365);
 
@@ -150,10 +132,7 @@ contract StakeEngineFuzzTest is Test {
 
     /// @notice Can't withdraw more than you have. Partial withdrawals
     ///         leave the correct remainder.
-    function testFuzz_WithdrawNeverExceedsStake(
-        uint128 stakeAmt,
-        uint128 withdrawAmt
-    ) public {
+    function testFuzz_WithdrawNeverExceedsStake(uint128 stakeAmt, uint128 withdrawAmt) public {
         uint256 staked = bound(uint256(stakeAmt), 1e18, 1e24); // bundle05_a
         uint256 withdrawn = bound(uint256(withdrawAmt), 1, staked);
 
@@ -170,10 +149,7 @@ contract StakeEngineFuzzTest is Test {
     }
 
     /// @notice Withdrawing more than staked must revert.
-    function testFuzz_WithdrawTooMuchReverts(
-        uint128 stakeAmt,
-        uint128 extra
-    ) public {
+    function testFuzz_WithdrawTooMuchReverts(uint128 stakeAmt, uint128 extra) public {
         uint256 staked = bound(uint256(stakeAmt), 1e18, 1e24); // bundle05_a
         uint256 tooMuch = staked + bound(uint256(extra), 1, 1e24); // bundle05_a
 
@@ -190,10 +166,7 @@ contract StakeEngineFuzzTest is Test {
     /// @notice Multiple stakes from same user consolidate into one lot.
     ///         Total must equal sum. Weighted position must be between
     ///         the earliest and latest entry positions.
-    function testFuzz_LotConsolidation(
-        uint128 first,
-        uint128 second
-    ) public {
+    function testFuzz_LotConsolidation(uint128 first, uint128 second) public {
         uint256 amt1 = bound(uint256(first), 1e18, 1e24); // bundle05_a
         uint256 amt2 = bound(uint256(second), 1e18, 1e24); // bundle05_a
 
@@ -206,7 +179,7 @@ contract StakeEngineFuzzTest is Test {
         // Weighted position is now the midpoint: cumBefore + amount/2
         // Since this is the only lot on this side, cumBefore=0, amount=amt1+amt2
         // So wPos = (amt1 + amt2) / 2
-        (uint256 amount, uint256 weightedPos, , , ) = engine.getUserLotInfo(address(this), postA, 0);
+        (uint256 amount, uint256 weightedPos,,,) = engine.getUserLotInfo(address(this), postA, 0);
 
         assertEq(amount, amt1 + amt2, "lot info amount wrong");
         uint256 expectedPos = (amt1 + amt2) / 2;
@@ -218,10 +191,7 @@ contract StakeEngineFuzzTest is Test {
     // ────────────────────────────────────────────────────────────
 
     /// @notice sMax must decay over time when no new stakes exceed it.
-    function testFuzz_SMaxDecays(
-        uint128 stakeAmt,
-        uint16 daysElapsed
-    ) public {
+    function testFuzz_SMaxDecays(uint128 stakeAmt, uint16 daysElapsed) public {
         uint256 amt = bound(uint256(stakeAmt), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 3650);
 
@@ -247,11 +217,9 @@ contract StakeEngineFuzzTest is Test {
 
     /// @notice getPostTotals (view projection) must equal the values
     ///         after an explicit updatePost (materialized snapshot).
-    function testFuzz_ViewProjectionMatchesSnapshot(
-        uint128 supportAmt,
-        uint128 challengeAmt,
-        uint16 daysElapsed
-    ) public {
+    function testFuzz_ViewProjectionMatchesSnapshot(uint128 supportAmt, uint128 challengeAmt, uint16 daysElapsed)
+        public
+    {
         uint256 sup = bound(uint256(supportAmt), 1e18, 1e24); // bundle05_a
         uint256 chal = bound(uint256(challengeAmt), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 30);
@@ -282,11 +250,7 @@ contract StakeEngineFuzzTest is Test {
     // Invariant: user stake projection matches materialized
     // ────────────────────────────────────────────────────────────
 
-    function testFuzz_UserStakeProjectionMatches(
-        uint128 supportAmt,
-        uint128 challengeAmt,
-        uint16 daysElapsed
-    ) public {
+    function testFuzz_UserStakeProjectionMatches(uint128 supportAmt, uint128 challengeAmt, uint16 daysElapsed) public {
         uint256 sup = bound(uint256(supportAmt), 1e18, 1e24); // bundle05_a
         uint256 chal = bound(uint256(challengeAmt), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 1, 30);
@@ -312,10 +276,7 @@ contract StakeEngineFuzzTest is Test {
     // Invariant: multiple snapshots are idempotent within same epoch
     // ────────────────────────────────────────────────────────────
 
-    function testFuzz_DoubleSnapshotIdempotent(
-        uint128 supportAmt,
-        uint128 challengeAmt
-    ) public {
+    function testFuzz_DoubleSnapshotIdempotent(uint128 supportAmt, uint128 challengeAmt) public {
         uint256 sup = bound(uint256(supportAmt), 1e18, 1e24); // bundle05_a
         uint256 chal = bound(uint256(challengeAmt), 1e18, 1e24); // bundle05_a
         vm.assume(sup != chal);
@@ -343,16 +304,14 @@ contract StakeEngineFuzzTest is Test {
 
     /// @notice Even with extreme imbalance and long time, the losing
     ///         side must floor at 0, never underflow.
-    function testFuzz_LosingSideFloorsAtZero(
-        uint128 bigSide,
-        uint8 smallMultiplier,
-        uint16 daysElapsed
-    ) public {
+    function testFuzz_LosingSideFloorsAtZero(uint128 bigSide, uint8 smallMultiplier, uint16 daysElapsed) public {
         uint256 big = bound(uint256(bigSide), 1e23, 1e24); // bundle05_a
         // Small side is 1/100 to 1/2 of big side
         uint256 divisor = bound(uint256(smallMultiplier), 2, 100);
         uint256 small = big / divisor;
-        if (small == 0) small = 1e18;
+        if (small == 0) {
+            small = 1e18;
+        }
         uint256 days_ = bound(uint256(daysElapsed), 30, 365);
 
         engine.stake(postA, 0, big);
@@ -376,10 +335,7 @@ contract StakeEngineFuzzTest is Test {
 
     /// @notice Given equal amounts, the earlier staker should earn
     ///         at least as much as the later staker (positional advantage).
-    function testFuzz_EarlyStakerEarnsMore(
-        uint128 amount,
-        uint16 daysElapsed
-    ) public {
+    function testFuzz_EarlyStakerEarnsMore(uint128 amount, uint16 daysElapsed) public {
         uint256 amt = bound(uint256(amount), 1e18, 1e24); // bundle05_a
         uint256 days_ = bound(uint256(daysElapsed), 2, 180);
 

@@ -2,7 +2,10 @@
 # POST-LAUNCH ROLE LOCKDOWN — run after all bounty minting is done.
 # Revokes deployer's direct mint/burn. Irreversible without governance.
 set -e
-if [ -f ~/verisphere/.env ]; then set -a; source ~/verisphere/.env; set +a; fi
+# patch_retire_core_env: deploy/admin keys come from SOPS via the resolver now,
+# not a plaintext ~/verisphere/.env (that file was removed in Bundle 10 B3). Run
+# `vsp-secrets-load` (or source vsp-env-resolve.sh output) before this script.
+: "${DEPLOYER_PRIVATE_KEY:?DEPLOYER_PRIVATE_KEY not set — run 'vsp-secrets-load' first}"
 RPC_URL="${RPC_URL:-https://api.avax-test.network/ext/bc/C/rpc}"
 ADDRESSES_FILE="broadcast/Deploy.s.sol/43113/addresses.json"
 [ -f "$ADDRESSES_FILE" ] || { echo "No deployment found"; exit 1; }

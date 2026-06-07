@@ -43,3 +43,7 @@ deployments/fuji.json
 broadcast/
 cache/
 out/
+
+# patch_storage_layout_gate: keep storage-layout regression baselines tracked
+# (the global *.json rule above would otherwise ignore them).
+!script/storage-layout/baselines/*.json

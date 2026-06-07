@@ -37,34 +37,17 @@ contract Upgrade is Script {
         bool freshStakeEngine = vm.envOr("FRESH_STAKE_ENGINE", false);
 
         // Read existing addresses
-        string memory jsonFile = vm.readFile(
-            "broadcast/Deploy.s.sol/43113/addresses.json"
-        );
+        string memory jsonFile = vm.readFile("broadcast/Deploy.s.sol/43113/addresses.json");
         // Forwarder is deployed separately (see app/contracts/).
         // deploy.sh always passes FORWARDER_ADDRESS; fall back to JSON for manual runs.
         address forwarderAddr = vm.envOr("FORWARDER_ADDRESS", _tryParseForwarder(jsonFile));
         address authorityAddr = vm.parseJsonAddress(jsonFile, ".Authority");
         address vspTokenAddr = vm.parseJsonAddress(jsonFile, ".VSPToken");
-        address postRegistryProxy = vm.parseJsonAddress(
-            jsonFile,
-            ".PostRegistry"
-        );
+        address postRegistryProxy = vm.parseJsonAddress(jsonFile, ".PostRegistry");
         address linkGraphProxy = vm.parseJsonAddress(jsonFile, ".LinkGraph");
-        address stakeEngineProxy = vm.parseJsonAddress(
-            jsonFile,
-            ".StakeEngine"
-        );
-        address scoreEngineProxy = vm.parseJsonAddress(
-            jsonFile,
-            ".ScoreEngine"
-        );
-        address protocolViewsProxy = vm.parseJsonAddress(
-            jsonFile,
-            ".ProtocolViews"
-        );
-
-
-
+        address stakeEngineProxy = vm.parseJsonAddress(jsonFile, ".StakeEngine");
+        address scoreEngineProxy = vm.parseJsonAddress(jsonFile, ".ScoreEngine");
+        address protocolViewsProxy = vm.parseJsonAddress(jsonFile, ".ProtocolViews");
 
         console.log("=== Upgrade Configuration ===");
         console.log("Forwarder:", forwarderAddr);
@@ -74,8 +57,12 @@ contract Upgrade is Script {
         console.log("StakeEngine proxy:", stakeEngineProxy);
         console.log("ScoreEngine proxy:", scoreEngineProxy);
         console.log("ProtocolViews proxy:", protocolViewsProxy);
-        { address _tl = _tryParseTimelock(jsonFile);
-          if (_tl != address(0)) console.log("TimelockController:", _tl); }
+        {
+            address _tl = _tryParseTimelock(jsonFile);
+            if (_tl != address(0)) {
+                console.log("TimelockController:", _tl);
+            }
+        }
         console.log("FRESH_STAKE_ENGINE:", freshStakeEngine);
         console.log("");
 
@@ -83,14 +70,8 @@ contract Upgrade is Script {
 
         // ── PostRegistry ────────────────────────────────────────────
         PostRegistry newRegistryImpl = new PostRegistry(forwarderAddr);
-        UUPSUpgradeable(postRegistryProxy).upgradeToAndCall(
-            address(newRegistryImpl),
-            bytes("")
-        );
-        console.log(
-            "PostRegistry upgraded. New impl:",
-            address(newRegistryImpl)
-        );
+        UUPSUpgradeable(postRegistryProxy).upgradeToAndCall(address(newRegistryImpl), bytes(""));
+        console.log("PostRegistry upgraded. New impl:", address(newRegistryImpl));
 
         // Grant PostRegistry the burner role (idempotent if already set)
         Authority authority = Authority(authorityAddr);
@@ -107,18 +88,12 @@ contract Upgrade is Script {
             vm.envOr("VSP_GROWTH_BASE_PER_YEAR", uint256(10 * 1e18)),
             vm.envOr("VSP_STAKE_ENGINE_ADDRESS", address(0)) // patch_bundle10_5_part2a_stakeengine_exempt
         ); // patch_bundle10_5_part2a_timecap: 4-arg constructor
-        UUPSUpgradeable(vspTokenAddr).upgradeToAndCall(
-            address(newTokenImpl),
-            bytes("")
-        );
+        UUPSUpgradeable(vspTokenAddr).upgradeToAndCall(address(newTokenImpl), bytes(""));
         console.log("VSPToken upgraded. New impl:", address(newTokenImpl));
 
         // ── LinkGraph ───────────────────────────────────────────────
         LinkGraph newGraphImpl = new LinkGraph(forwarderAddr);
-        UUPSUpgradeable(linkGraphProxy).upgradeToAndCall(
-            address(newGraphImpl),
-            bytes("")
-        );
+        UUPSUpgradeable(linkGraphProxy).upgradeToAndCall(address(newGraphImpl), bytes(""));
         console.log("LinkGraph upgraded. New impl:", address(newGraphImpl));
 
         // ── StakeEngine ─────────────────────────────────────────────
@@ -126,19 +101,13 @@ contract Upgrade is Script {
 
         if (freshStakeEngine) {
             console.log("");
-            console.log(
-                ">>> Deploying FRESH StakeEngine (storage-breaking change) <<<"
-            );
+            console.log(">>> Deploying FRESH StakeEngine (storage-breaking change) <<<");
 
             // Deploy new proxy + implementation
             address _rp = address(StakeEngine(stakeEngineProxy).protocolPolicy());
             StakeEngine newStakeImpl = new StakeEngine(forwarderAddr);
             ERC1967Proxy newStakeProxy = new ERC1967Proxy(
-                address(newStakeImpl),
-                abi.encodeCall(
-                    StakeEngine.initialize,
-                    (deployer, vspTokenAddr, _rp)
-                )
+                address(newStakeImpl), abi.encodeCall(StakeEngine.initialize, (deployer, vspTokenAddr, _rp))
             );
             finalStakeEngineAddr = address(newStakeProxy);
 
@@ -156,34 +125,20 @@ contract Upgrade is Script {
         } else {
             // In-place upgrade — ONLY safe if no staked funds exist
             StakeEngine newStakeImpl = new StakeEngine(forwarderAddr);
-            UUPSUpgradeable(stakeEngineProxy).upgradeToAndCall(
-                address(newStakeImpl),
-                bytes("")
-            );
+            UUPSUpgradeable(stakeEngineProxy).upgradeToAndCall(address(newStakeImpl), bytes(""));
             finalStakeEngineAddr = stakeEngineProxy;
-            console.log(
-                "StakeEngine upgraded in-place. New impl:",
-                address(newStakeImpl)
-            );
-            console.log(
-                "WARNING: In-place upgrade assumes no existing staked funds."
-            );
+            console.log("StakeEngine upgraded in-place. New impl:", address(newStakeImpl));
+            console.log("WARNING: In-place upgrade assumes no existing staked funds.");
         }
 
         // ── ScoreEngine ─────────────────────────────────────────────
         ScoreEngine newScoreImpl = new ScoreEngine(forwarderAddr);
-        UUPSUpgradeable(scoreEngineProxy).upgradeToAndCall(
-            address(newScoreImpl),
-            bytes("")
-        );
+        UUPSUpgradeable(scoreEngineProxy).upgradeToAndCall(address(newScoreImpl), bytes(""));
         console.log("ScoreEngine upgraded. New impl:", address(newScoreImpl));
 
         // ── ProtocolViews ───────────────────────────────────────────
         ProtocolViews newViewsImpl = new ProtocolViews(forwarderAddr);
-        UUPSUpgradeable(protocolViewsProxy).upgradeToAndCall(
-            address(newViewsImpl),
-            bytes("")
-        );
+        UUPSUpgradeable(protocolViewsProxy).upgradeToAndCall(address(newViewsImpl), bytes(""));
         console.log("ProtocolViews upgraded. New impl:", address(newViewsImpl));
 
         vm.stopBroadcast();
@@ -193,12 +148,8 @@ contract Upgrade is Script {
             string memory updatedJson = string.concat(
                 '{"Authority":"',
                 vm.toString(authorityAddr),
-
                 _tryParseTimelock(jsonFile) != address(0)
-                    ? string.concat(
-                        '","TimelockController":"',
-                        vm.toString(_tryParseTimelock(jsonFile))
-                    )
+                    ? string.concat('","TimelockController":"', vm.toString(_tryParseTimelock(jsonFile)))
                     : "",
                 '","VSPToken":"',
                 vm.toString(vspTokenAddr),
@@ -214,15 +165,10 @@ contract Upgrade is Script {
                 vm.toString(protocolViewsProxy),
                 '"}'
             );
-            vm.writeFile(
-                "broadcast/Deploy.s.sol/43113/addresses.json",
-                updatedJson
-            );
+            vm.writeFile("broadcast/Deploy.s.sol/43113/addresses.json", updatedJson);
             console.log("");
             console.log("addresses.json updated with new StakeEngine address.");
-            console.log(
-                "Run post-deploy.sh to propagate to protocol/ and app/."
-            );
+            console.log("Run post-deploy.sh to propagate to protocol/ and app/.");
         }
 
         console.log("");
@@ -231,16 +177,10 @@ contract Upgrade is Script {
             console.log("StakeEngine: NEW PROXY at", finalStakeEngineAddr);
             console.log("All other proxies: addresses unchanged.");
             console.log("");
-            console.log(
-                "IMPORTANT: ScoreEngine and ProtocolViews read StakeEngine"
-            );
+            console.log("IMPORTANT: ScoreEngine and ProtocolViews read StakeEngine");
             console.log("via IStakeEngine interface stored at initialization.");
-            console.log(
-                "If they cache the old address, you may need to re-initialize"
-            );
-            console.log(
-                "or add a governance setter to update the StakeEngine reference."
-            );
+            console.log("If they cache the old address, you may need to re-initialize");
+            console.log("or add a governance setter to update the StakeEngine reference.");
         } else {
             console.log("All proxies upgraded. Addresses unchanged.");
         }
@@ -262,5 +202,4 @@ contract Upgrade is Script {
             return address(0);
         }
     }
-
 }

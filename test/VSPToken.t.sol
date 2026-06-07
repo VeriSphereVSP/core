@@ -22,17 +22,9 @@ contract VSPTokenTest is Test {
         // growth = 5x/year (5e18 UD60x18). Forwarder address(0) as before.
         // patch_bundle10_5_part2a_stakeengine_exempt: 5-arg ctor (added stakeEngine_),
         // and growth rate 5e18 → 10e18 (cap relaxes 2x faster per year).
-        VSPToken tokenImpl = new VSPToken(
-            address(0),
-            block.timestamp,
-            1000 * 1e18,
-            10 * 1e18,
-            address(0xDEEF)
-        );
-        ERC1967Proxy tokenProxy = new ERC1967Proxy(
-            address(tokenImpl),
-            abi.encodeCall(VSPToken.initialize, (address(auth)))
-        );
+        VSPToken tokenImpl = new VSPToken(address(0), block.timestamp, 1000 * 1e18, 10 * 1e18, address(0xDEEF));
+        ERC1967Proxy tokenProxy =
+            new ERC1967Proxy(address(tokenImpl), abi.encodeCall(VSPToken.initialize, (address(auth))));
         token = VSPToken(address(tokenProxy));
 
         assertEq(auth.owner(), owner);
@@ -149,13 +141,7 @@ contract VSPTokenTest is Test {
         uint256 amount = (1000 * 1e18) + 1;
         uint256 maxNow = token.maxAllowedSupply();
         vm.prank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                VSPToken.MintExceedsTimeWindowCap.selector,
-                amount,
-                maxNow
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(VSPToken.MintExceedsTimeWindowCap.selector, amount, maxNow));
         token.mint(user1, amount);
     }
 
@@ -166,7 +152,7 @@ contract VSPTokenTest is Test {
         vm.warp(block.timestamp + 365 days);
         uint256 cap = token.maxAllowedSupply();
         uint256 expected = 10000 * 1e18;
-        uint256 tol = expected / 1000;  // 0.1%
+        uint256 tol = expected / 1000; // 0.1%
         assertApproxEqAbs(cap, expected, tol);
         // And a mint that was impossible at year 0 (e.g. 8000 VSP)
         // now succeeds (well within the 10000 VSP cap).
@@ -181,7 +167,7 @@ contract VSPTokenTest is Test {
         vm.warp(block.timestamp + 2 * 365 days);
         uint256 cap = token.maxAllowedSupply();
         uint256 expected = 100000 * 1e18;
-        uint256 tol = expected / 1000;  // 0.1%
+        uint256 tol = expected / 1000; // 0.1%
         assertApproxEqAbs(cap, expected, tol);
     }
 
@@ -222,13 +208,7 @@ contract VSPTokenTest is Test {
 
         uint256 maxNow = token.maxAllowedSupply();
         vm.prank(owner);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                VSPToken.MintExceedsTimeWindowCap.selector,
-                (5000 * 1e18) + 1,
-                maxNow
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(VSPToken.MintExceedsTimeWindowCap.selector, (5000 * 1e18) + 1, maxNow));
         token.mint(user2, 1);
     }
 
@@ -242,7 +222,10 @@ contract VSPTokenTest is Test {
         bool found = false;
         bytes32 sig = keccak256("MintExecuted(address,uint256,uint256,uint256)");
         for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].topics[0] == sig) { found = true; break; }
+            if (logs[i].topics[0] == sig) {
+                found = true;
+                break;
+            }
         }
         assertTrue(found, "MintExecuted not emitted");
     }

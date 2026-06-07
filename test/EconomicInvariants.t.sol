@@ -34,27 +34,18 @@ contract EconomicInvariantsTest is Test {
         registry = PostRegistry(
             _proxy(
                 address(new PostRegistry(address(0))),
-                abi.encodeCall(
-                    PostRegistry.initialize,
-                    (address(this), address(vsp), address(policy))
-                )
+                abi.encodeCall(PostRegistry.initialize, (address(this), address(vsp), address(policy)))
             )
         );
 
         graph = LinkGraph(
-            _proxy(
-                address(new LinkGraph(address(0))),
-                abi.encodeCall(LinkGraph.initialize, (address(this)))
-            )
+            _proxy(address(new LinkGraph(address(0))), abi.encodeCall(LinkGraph.initialize, (address(this))))
         );
 
         stake = StakeEngine(
             _proxy(
                 address(new StakeEngine(address(0))),
-                abi.encodeCall(
-                    StakeEngine.initialize,
-                    (address(this), address(vsp), address(policy))
-                )
+                abi.encodeCall(StakeEngine.initialize, (address(this), address(vsp), address(policy)))
             )
         );
 
@@ -63,14 +54,7 @@ contract EconomicInvariantsTest is Test {
                 address(new ScoreEngine(address(0))),
                 abi.encodeCall(
                     ScoreEngine.initialize,
-                    (
-                        address(this),
-                        address(registry),
-                        address(stake),
-                        address(graph),
-                        address(policy),
-                        address(policy)
-                    )
+                    (address(this), address(registry), address(stake), address(graph), address(policy), address(policy))
                 )
             )
         );
@@ -80,14 +64,7 @@ contract EconomicInvariantsTest is Test {
                 address(new ProtocolViews(address(0))),
                 abi.encodeCall(
                     ProtocolViews.initialize,
-                    (
-                        address(this),
-                        address(registry),
-                        address(stake),
-                        address(graph),
-                        address(score),
-                        address(policy)
-                    )
+                    (address(this), address(registry), address(stake), address(graph), address(score), address(policy))
                 )
             )
         );

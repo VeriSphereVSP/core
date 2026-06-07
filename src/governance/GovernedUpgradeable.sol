@@ -15,11 +15,7 @@ import "@openzeppelin/contracts-upgradeable/metatx/ERC2771ContextUpgradeable.sol
 ///         as an immutable set in the constructor (not via initializer).
 ///         With UUPS proxies this works because immutables are embedded in
 ///         the implementation bytecode that the proxy delegatecalls to.
-abstract contract GovernedUpgradeable is
-    Initializable,
-    UUPSUpgradeable,
-    ERC2771ContextUpgradeable
-{
+abstract contract GovernedUpgradeable is Initializable, UUPSUpgradeable, ERC2771ContextUpgradeable {
     address public governance;
     address public pendingGovernance;
 
@@ -31,22 +27,22 @@ abstract contract GovernedUpgradeable is
     event PendingGovernanceSet(address indexed pending);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(
-        address trustedForwarder_
-    ) ERC2771ContextUpgradeable(trustedForwarder_) {
+    constructor(address trustedForwarder_) ERC2771ContextUpgradeable(trustedForwarder_) {
         _disableInitializers();
     }
 
-    function __GovernedUpgradeable_init(
-        address governance_
-    ) internal onlyInitializing {
-        if (governance_ == address(0)) revert ZeroAddress();
+    function __GovernedUpgradeable_init(address governance_) internal onlyInitializing {
+        if (governance_ == address(0)) {
+            revert ZeroAddress();
+        }
         governance = governance_;
         emit GovernanceSet(governance_);
     }
 
     modifier onlyGovernance() {
-        if (_msgSender() != governance) revert NotGovernance();
+        if (_msgSender() != governance) {
+            revert NotGovernance();
+        }
         _;
     }
 
@@ -65,8 +61,12 @@ abstract contract GovernedUpgradeable is
     /// @notice Accept proposed governance role. Only callable by the address
     ///         that was set as pendingGovernance via proposeGovernance().
     function acceptGovernance() external {
-        if (_msgSender() != pendingGovernance) revert NotPendingGovernance();
-        if (pendingGovernance == address(0)) revert ZeroAddress();
+        if (_msgSender() != pendingGovernance) {
+            revert NotPendingGovernance();
+        }
+        if (pendingGovernance == address(0)) {
+            revert ZeroAddress();
+        }
         governance = pendingGovernance;
         pendingGovernance = address(0);
         emit GovernanceSet(governance);
@@ -74,33 +74,15 @@ abstract contract GovernedUpgradeable is
 
     // ----- Solidity diamond override resolution -----
 
-    function _msgSender()
-        internal
-        view
-        virtual
-        override
-        returns (address)
-    {
+    function _msgSender() internal view virtual override returns (address) {
         return ERC2771ContextUpgradeable._msgSender();
     }
 
-    function _msgData()
-        internal
-        view
-        virtual
-        override
-        returns (bytes calldata)
-    {
+    function _msgData() internal view virtual override returns (bytes calldata) {
         return ERC2771ContextUpgradeable._msgData();
     }
 
-    function _contextSuffixLength()
-        internal
-        view
-        virtual
-        override
-        returns (uint256)
-    {
+    function _contextSuffixLength() internal view virtual override returns (uint256) {
         return ERC2771ContextUpgradeable._contextSuffixLength();
     }
 

@@ -20,9 +20,9 @@ contract PauseGuardianTest is Test {
     MockProtocolPolicy policy;
 
     address governance = address(0xA110);
-    address guardian   = address(0xB220);
-    address user       = address(0xCAFE);
-    address attacker   = address(0xDEAD);
+    address guardian = address(0xB220);
+    address user = address(0xCAFE);
+    address attacker = address(0xDEAD);
 
     function _proxy(address impl, bytes memory data) internal returns (address) {
         return address(new ERC1967Proxy(impl, data));
@@ -30,24 +30,23 @@ contract PauseGuardianTest is Test {
 
     function setUp() public {
         vsp = new MockVSP();
-        policy = new MockProtocolPolicy(0);  // 0 fee for tests
+        policy = new MockProtocolPolicy(0); // 0 fee for tests
 
-        pr = PostRegistry(_proxy(
-            address(new PostRegistry(address(0))),
-            abi.encodeCall(PostRegistry.initialize,
-                (governance, address(vsp), address(policy)))
-        ));
+        pr = PostRegistry(
+            _proxy(
+                address(new PostRegistry(address(0))),
+                abi.encodeCall(PostRegistry.initialize, (governance, address(vsp), address(policy)))
+            )
+        );
 
-        lg = LinkGraph(_proxy(
-            address(new LinkGraph(address(0))),
-            abi.encodeCall(LinkGraph.initialize, (governance))
-        ));
+        lg = LinkGraph(_proxy(address(new LinkGraph(address(0))), abi.encodeCall(LinkGraph.initialize, (governance))));
 
-        se = StakeEngine(_proxy(
-            address(new StakeEngine(address(0))),
-            abi.encodeCall(StakeEngine.initialize,
-                (governance, address(vsp), address(policy)))
-        ));
+        se = StakeEngine(
+            _proxy(
+                address(new StakeEngine(address(0))),
+                abi.encodeCall(StakeEngine.initialize, (governance, address(vsp), address(policy)))
+            )
+        );
 
         // Wire LinkGraph <-> PostRegistry both directions.
         vm.startPrank(governance);
@@ -240,11 +239,12 @@ contract PauseGuardianTest is Test {
     // ─── 15: initializeV2 callable only by governance ───────────────
     function testInitV2OnlyGovernance() public {
         // Fresh deploy of a fresh proxy to test pre-initV2 access control.
-        PostRegistry pr2 = PostRegistry(_proxy(
-            address(new PostRegistry(address(0))),
-            abi.encodeCall(PostRegistry.initialize,
-                (governance, address(vsp), address(policy)))
-        ));
+        PostRegistry pr2 = PostRegistry(
+            _proxy(
+                address(new PostRegistry(address(0))),
+                abi.encodeCall(PostRegistry.initialize, (governance, address(vsp), address(policy)))
+            )
+        );
 
         vm.prank(attacker);
         vm.expectRevert(GovernedUpgradeable.NotGovernance.selector);

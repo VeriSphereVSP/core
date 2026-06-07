@@ -27,10 +27,7 @@ contract PostRegistryFuzzTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new PostRegistry(address(0))),
-                    abi.encodeCall(
-                        PostRegistry.initialize,
-                        (address(this), address(vsp), address(policy))
-                    )
+                    abi.encodeCall(PostRegistry.initialize, (address(this), address(vsp), address(policy)))
                 )
             )
         );
@@ -38,8 +35,7 @@ contract PostRegistryFuzzTest is Test {
         graph = LinkGraph(
             address(
                 new ERC1967Proxy(
-                    address(new LinkGraph(address(0))),
-                    abi.encodeCall(LinkGraph.initialize, (address(this)))
+                    address(new LinkGraph(address(0))), abi.encodeCall(LinkGraph.initialize, (address(this)))
                 )
             )
         );
@@ -107,18 +103,19 @@ contract PostRegistryFuzzTest is Test {
 
     /// @notice Claims that differ in non-whitespace, non-case characters
     ///         must NOT be treated as duplicates.
-    function testFuzz_DistinctClaimsAreDistinct(
-        uint8 suffixA,
-        uint8 suffixB
-    ) public {
+    function testFuzz_DistinctClaimsAreDistinct(uint8 suffixA, uint8 suffixB) public {
         vm.assume(suffixA != suffixB);
         // Ensure printable ASCII range
         uint8 a = uint8(bound(uint256(suffixA), 0x30, 0x7A));
         uint8 b = uint8(bound(uint256(suffixB), 0x30, 0x7A));
 
         // Avoid case-equivalent pairs (e.g., 'A' and 'a')
-        if (a >= 0x41 && a <= 0x5A) a += 32; // lowercase
-        if (b >= 0x41 && b <= 0x5A) b += 32;
+        if (a >= 0x41 && a <= 0x5A) {
+            a += 32; // lowercase
+        }
+        if (b >= 0x41 && b <= 0x5A) {
+            b += 32;
+        }
         vm.assume(a != b);
 
         string memory textA = string(abi.encodePacked("claim ", bytes1(a)));
@@ -139,9 +136,7 @@ contract PostRegistryFuzzTest is Test {
 
         uint256 prevId = 0;
         for (uint256 i = 0; i < n; i++) {
-            string memory text = string(
-                abi.encodePacked("sequential claim ", vm.toString(i))
-            );
+            string memory text = string(abi.encodePacked("sequential claim ", vm.toString(i)));
             uint256 id = registry.createClaim(text);
             assertEq(id, prevId + 1, "IDs not sequential");
             prevId = id;
@@ -153,9 +148,7 @@ contract PostRegistryFuzzTest is Test {
     // ────────────────────────────────────────────────────────────
 
     function testFuzz_FindClaimRoundTrip(uint8 seed) public {
-        string memory text = string(
-            abi.encodePacked("findme ", vm.toString(uint256(seed)))
-        );
+        string memory text = string(abi.encodePacked("findme ", vm.toString(uint256(seed))));
 
         // Before creation: not found
         uint256 notFound = registry.findClaim(text);
@@ -169,9 +162,7 @@ contract PostRegistryFuzzTest is Test {
         assertEq(found, id, "findClaim returned wrong ID");
 
         // Case-varied lookup should also find it
-        string memory upper = string(
-            abi.encodePacked("FINDME ", vm.toString(uint256(seed)))
-        );
+        string memory upper = string(abi.encodePacked("FINDME ", vm.toString(uint256(seed))));
         uint256 foundUpper = registry.findClaim(upper);
         assertEq(foundUpper, id, "case-insensitive findClaim failed");
     }
@@ -191,13 +182,7 @@ contract PostRegistryFuzzTest is Test {
         }
         string memory longText = string(longBytes);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                PostRegistry.ClaimTooLong.selector,
-                maxLen + extra,
-                maxLen
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(PostRegistry.ClaimTooLong.selector, maxLen + extra, maxLen));
         registry.createClaim(longText);
     }
 
@@ -250,9 +235,7 @@ contract PostRegistryFuzzTest is Test {
         registry.createLink(a, b, false); // support link
 
         // Same direction, same type: should revert
-        vm.expectRevert(
-            abi.encodeWithSelector(PostRegistry.DuplicateLink.selector, a, b, false)
-        );
+        vm.expectRevert(abi.encodeWithSelector(PostRegistry.DuplicateLink.selector, a, b, false));
         registry.createLink(a, b, false);
 
         // Same direction, different type: should succeed (challenge vs support)

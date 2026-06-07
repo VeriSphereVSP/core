@@ -1,0 +1,297 @@
+{
+  "_meta": {
+    "contract": "src/StakeEngine.sol:StakeEngine",
+    "forge_version": "forge Version: 1.5.1-stable",
+    "generated_at": "2026-06-06T22:12:42Z",
+    "layout_sha256": "e87aca36bc5df9ae80bff73c8ad5bf258274c6eeee1f36aa8ea8b4a7a1dd931a",
+    "note": "Storage-layout regression baseline. Regenerate ONLY for an intended, reviewed, upgrade-safe layout change via check.sh --update.",
+    "schema": 2
+  },
+  "layout": {
+    "storage": [
+      {
+        "label": "governance",
+        "offset": 0,
+        "slot": 0,
+        "type": "t_address"
+      },
+      {
+        "label": "pendingGovernance",
+        "offset": 0,
+        "slot": 1,
+        "type": "t_address"
+      },
+      {
+        "label": "__gap",
+        "offset": 0,
+        "slot": 2,
+        "type": "t_array(t_uint256)100_storage"
+      },
+      {
+        "label": "ERC20_TOKEN",
+        "offset": 0,
+        "slot": 102,
+        "type": "t_contract(IERC20)"
+      },
+      {
+        "label": "VSP_TOKEN",
+        "offset": 0,
+        "slot": 103,
+        "type": "t_contract(IVSPToken)"
+      },
+      {
+        "label": "protocolPolicy",
+        "offset": 0,
+        "slot": 104,
+        "type": "t_contract(IProtocolPolicy)"
+      },
+      {
+        "label": "posts",
+        "offset": 0,
+        "slot": 105,
+        "type": "t_mapping(t_uint256,t_struct(PostState)_storage)"
+      },
+      {
+        "label": "sMax",
+        "offset": 0,
+        "slot": 106,
+        "type": "t_uint256"
+      },
+      {
+        "label": "sMaxPostId",
+        "offset": 0,
+        "slot": 107,
+        "type": "t_uint256"
+      },
+      {
+        "label": "topPosts",
+        "offset": 0,
+        "slot": 108,
+        "type": "t_array(t_struct(TopPost)_storage)3_storage"
+      },
+      {
+        "label": "_reentrancyStatus",
+        "offset": 0,
+        "slot": 114,
+        "type": "t_uint256"
+      },
+      {
+        "label": "sMaxLastUpdatedEpoch",
+        "offset": 0,
+        "slot": 115,
+        "type": "t_uint256"
+      },
+      {
+        "label": "snapshotPeriod",
+        "offset": 0,
+        "slot": 116,
+        "type": "t_uint256"
+      },
+      {
+        "label": "sMaxDecayRateRay",
+        "offset": 0,
+        "slot": 117,
+        "type": "t_uint256"
+      },
+      {
+        "label": "sMaxDecayMaxEpochs",
+        "offset": 0,
+        "slot": 118,
+        "type": "t_uint256"
+      },
+      {
+        "label": "guardian",
+        "offset": 0,
+        "slot": 119,
+        "type": "t_address"
+      },
+      {
+        "label": "paused",
+        "offset": 20,
+        "slot": 119,
+        "type": "t_bool"
+      },
+      {
+        "label": "_initializedV2",
+        "offset": 21,
+        "slot": 119,
+        "type": "t_bool"
+      },
+      {
+        "label": "__gap",
+        "offset": 0,
+        "slot": 120,
+        "type": "t_array(t_uint256)499_storage"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_array(t_struct(SideQueue)_storage)2_storage": {
+        "base": "t_struct(SideQueue)_storage",
+        "encoding": "inplace",
+        "numberOfBytes": "128"
+      },
+      "t_array(t_struct(StakeLot)_storage)dyn_storage": {
+        "base": "t_struct(StakeLot)_storage",
+        "encoding": "dynamic_array",
+        "numberOfBytes": "32"
+      },
+      "t_array(t_struct(TopPost)_storage)3_storage": {
+        "base": "t_struct(TopPost)_storage",
+        "encoding": "inplace",
+        "numberOfBytes": "192"
+      },
+      "t_array(t_uint256)100_storage": {
+        "base": "t_uint256",
+        "encoding": "inplace",
+        "numberOfBytes": "3200"
+      },
+      "t_array(t_uint256)499_storage": {
+        "base": "t_uint256",
+        "encoding": "inplace",
+        "numberOfBytes": "15968"
+      },
+      "t_bool": {
+        "encoding": "inplace",
+        "numberOfBytes": "1"
+      },
+      "t_contract(IERC20)": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_contract(IProtocolPolicy)": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_contract(IVSPToken)": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_mapping(t_address,t_uint256)": {
+        "encoding": "mapping",
+        "key": "t_address",
+        "numberOfBytes": "32",
+        "value": "t_uint256"
+      },
+      "t_mapping(t_uint256,t_struct(PostState)_storage)": {
+        "encoding": "mapping",
+        "key": "t_uint256",
+        "numberOfBytes": "32",
+        "value": "t_struct(PostState)_storage"
+      },
+      "t_struct(PostState)_storage": {
+        "encoding": "inplace",
+        "members": [
+          {
+            "label": "sides",
+            "offset": 0,
+            "slot": 0,
+            "type": "t_array(t_struct(SideQueue)_storage)2_storage"
+          },
+          {
+            "label": "lastSnapshotEpoch",
+            "offset": 0,
+            "slot": 4,
+            "type": "t_uint256"
+          },
+          {
+            "label": "lotIndex0",
+            "offset": 0,
+            "slot": 5,
+            "type": "t_mapping(t_address,t_uint256)"
+          },
+          {
+            "label": "lotIndex1",
+            "offset": 0,
+            "slot": 6,
+            "type": "t_mapping(t_address,t_uint256)"
+          }
+        ],
+        "numberOfBytes": "224"
+      },
+      "t_struct(SideQueue)_storage": {
+        "encoding": "inplace",
+        "members": [
+          {
+            "label": "lots",
+            "offset": 0,
+            "slot": 0,
+            "type": "t_array(t_struct(StakeLot)_storage)dyn_storage"
+          },
+          {
+            "label": "total",
+            "offset": 0,
+            "slot": 1,
+            "type": "t_uint256"
+          }
+        ],
+        "numberOfBytes": "64"
+      },
+      "t_struct(StakeLot)_storage": {
+        "encoding": "inplace",
+        "members": [
+          {
+            "label": "staker",
+            "offset": 0,
+            "slot": 0,
+            "type": "t_address"
+          },
+          {
+            "label": "amount",
+            "offset": 0,
+            "slot": 1,
+            "type": "t_uint256"
+          },
+          {
+            "label": "side",
+            "offset": 0,
+            "slot": 2,
+            "type": "t_uint8"
+          },
+          {
+            "label": "weightedPosition",
+            "offset": 0,
+            "slot": 3,
+            "type": "t_uint256"
+          },
+          {
+            "label": "entryEpoch",
+            "offset": 0,
+            "slot": 4,
+            "type": "t_uint256"
+          }
+        ],
+        "numberOfBytes": "160"
+      },
+      "t_struct(TopPost)_storage": {
+        "encoding": "inplace",
+        "members": [
+          {
+            "label": "postId",
+            "offset": 0,
+            "slot": 0,
+            "type": "t_uint256"
+          },
+          {
+            "label": "total",
+            "offset": 0,
+            "slot": 1,
+            "type": "t_uint256"
+          }
+        ],
+        "numberOfBytes": "64"
+      },
+      "t_uint256": {
+        "encoding": "inplace",
+        "numberOfBytes": "32"
+      },
+      "t_uint8": {
+        "encoding": "inplace",
+        "numberOfBytes": "1"
+      }
+    }
+  }
+}

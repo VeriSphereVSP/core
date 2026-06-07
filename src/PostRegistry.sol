@@ -79,15 +79,13 @@ contract PostRegistry is GovernedUpgradeable {
     error AlreadyInitializedV2();
 
     modifier whenNotPaused() {
-        if (paused) revert WhenPaused();
+        if (paused) {
+            revert WhenPaused();
+        }
         _;
     }
 
-    event PostCreated(
-        uint256 indexed postId,
-        address indexed creator,
-        ContentType contentType
-    );
+    event PostCreated(uint256 indexed postId, address indexed creator, ContentType contentType);
     event LinkGraphSet(address indexed linkGraph);
     event FeeBurned(uint256 indexed postId, uint256 feeAmount);
 
@@ -106,15 +104,9 @@ contract PostRegistry is GovernedUpgradeable {
     error FeeTransferFailed();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(
-        address trustedForwarder_
-    ) GovernedUpgradeable(trustedForwarder_) {}
+    constructor(address trustedForwarder_) GovernedUpgradeable(trustedForwarder_) {}
 
-    function initialize(
-        address governance_,
-        address vspToken_,
-        address protocolPolicy_
-    ) external initializer {
+    function initialize(address governance_, address vspToken_, address protocolPolicy_) external initializer {
         __GovernedUpgradeable_init(governance_);
         vspToken = IVSPToken(vspToken_);
         protocolPolicy = IProtocolPolicy(protocolPolicy_);
@@ -123,7 +115,9 @@ contract PostRegistry is GovernedUpgradeable {
 
     /// @notice Set or update the LinkGraph address. Governance-only.
     function setLinkGraph(address linkGraph_) external onlyGovernance {
-        if (linkGraph_ == address(0)) revert LinkGraphZeroAddress();
+        if (linkGraph_ == address(0)) {
+            revert LinkGraphZeroAddress();
+        }
         linkGraph = LinkGraph(linkGraph_);
         emit LinkGraphSet(linkGraph_);
     }
@@ -133,7 +127,9 @@ contract PostRegistry is GovernedUpgradeable {
     /// @notice One-shot V2 initializer. Sets initial Guardian after
     ///         upgrade-in-place. Only governance, only once.
     function initializeV2(address guardian_) external onlyGovernance {
-        if (_initializedV2) revert AlreadyInitializedV2();
+        if (_initializedV2) {
+            revert AlreadyInitializedV2();
+        }
         _initializedV2 = true;
         guardian = guardian_;
         emit GuardianSet(address(0), guardian_);
@@ -165,16 +161,20 @@ contract PostRegistry is GovernedUpgradeable {
 
     // -------- Core write methods --------
 
-    function createClaim(
-        string calldata text_
-    ) external whenNotPaused returns (uint256 postId) {
-        if (bytes(text_).length == 0) revert InvalidClaim();
-        if (bytes(text_).length > MAX_CLAIM_LENGTH) revert ClaimTooLong(bytes(text_).length, MAX_CLAIM_LENGTH);
+    function createClaim(string calldata text_) external whenNotPaused returns (uint256 postId) {
+        if (bytes(text_).length == 0) {
+            revert InvalidClaim();
+        }
+        if (bytes(text_).length > MAX_CLAIM_LENGTH) {
+            revert ClaimTooLong(bytes(text_).length, MAX_CLAIM_LENGTH);
+        }
 
         // Duplicate check BEFORE charging fee -- no VSP burned on revert
         bytes32 normalizedHash = _normalizeAndHash(text_);
         uint256 existing = claimHashToPostIdPlusOne[normalizedHash];
-        if (existing != 0) revert DuplicateClaim(existing - 1);
+        if (existing != 0) {
+            revert DuplicateClaim(existing - 1);
+        }
 
         postId = nextPostId++;
 
@@ -200,37 +200,41 @@ contract PostRegistry is GovernedUpgradeable {
     /// @param fromPostId The claim providing evidence (outgoing end).
     /// @param toPostId   The claim receiving evidence (incoming end).
     /// @param isChallenge True if fromPostId challenges toPostId, false if it supports.
-    function createLink(
-        uint256 fromPostId,
-        uint256 toPostId,
-        bool isChallenge
-    ) external whenNotPaused returns (uint256 postId) {
-        if (address(linkGraph) == address(0)) revert LinkGraphNotSet();
-        if (!_exists(fromPostId)) revert FromPostDoesNotExist();
-        if (!_exists(toPostId)) revert ToPostDoesNotExist();
+    function createLink(uint256 fromPostId, uint256 toPostId, bool isChallenge)
+        external
+        whenNotPaused
+        returns (uint256 postId)
+    {
+        if (address(linkGraph) == address(0)) {
+            revert LinkGraphNotSet();
+        }
+        if (!_exists(fromPostId)) {
+            revert FromPostDoesNotExist();
+        }
+        if (!_exists(toPostId)) {
+            revert ToPostDoesNotExist();
+        }
 
         Post memory fromPost = posts[fromPostId];
         Post memory toPost = posts[toPostId];
-        if (fromPost.contentType != ContentType.Claim)
+        if (fromPost.contentType != ContentType.Claim) {
             revert FromPostMustBeClaim();
-        if (toPost.contentType != ContentType.Claim) revert ToPostMustBeClaim();
+        }
+        if (toPost.contentType != ContentType.Claim) {
+            revert ToPostMustBeClaim();
+        }
 
         // Duplicate link check BEFORE charging fee -- no VSP burned on revert
-        if (linkGraph.hasEdge(fromPostId, toPostId, isChallenge))
+        if (linkGraph.hasEdge(fromPostId, toPostId, isChallenge)) {
             revert DuplicateLink(fromPostId, toPostId, isChallenge);
+        }
 
         postId = nextPostId++;
 
         uint256 fee = _chargeFee(postId);
 
         uint256 linkId = links.length;
-        links.push(
-            Link({
-                fromPostId: fromPostId,
-                toPostId: toPostId,
-                isChallenge: isChallenge
-            })
-        );
+        links.push(Link({fromPostId: fromPostId, toPostId: toPostId, isChallenge: isChallenge}));
 
         posts[postId] = Post({
             creator: _msgSender(),
@@ -261,26 +265,28 @@ contract PostRegistry is GovernedUpgradeable {
 
     /// @notice Check if a claim with this text already exists on-chain.
     /// @return existingPostId The postId, or type(uint256).max if not found.
-    function findClaim(
-        string calldata text_
-    ) external view returns (uint256 existingPostId) {
+    function findClaim(string calldata text_) external view returns (uint256 existingPostId) {
         bytes32 h = _normalizeAndHash(text_);
         uint256 stored = claimHashToPostIdPlusOne[h];
-        if (stored == 0) return type(uint256).max;
+        if (stored == 0) {
+            return type(uint256).max;
+        }
         return stored - 1;
     }
 
     // -------- Governance: backfill existing claims --------
 
-    function backfillClaimHashes(
-        uint256[] calldata postIds
-    ) external onlyGovernance {
+    function backfillClaimHashes(uint256[] calldata postIds) external onlyGovernance {
         for (uint256 i = 0; i < postIds.length; i++) {
             uint256 pid = postIds[i];
-            if (pid >= nextPostId) continue;
+            if (pid >= nextPostId) {
+                continue;
+            }
 
             Post memory p = posts[pid];
-            if (p.contentType != ContentType.Claim) continue;
+            if (p.contentType != ContentType.Claim) {
+                continue;
+            }
 
             string memory claimText = claims[p.contentId].text;
             bytes32 h = _normalizeBytes(bytes(claimText));
@@ -293,9 +299,7 @@ contract PostRegistry is GovernedUpgradeable {
 
     // -------- Internal --------
 
-    function _normalizeAndHash(
-        string calldata text_
-    ) internal pure returns (bytes32) {
+    function _normalizeAndHash(string calldata text_) internal pure returns (bytes32) {
         return _normalizeBytes(bytes(text_));
     }
 
@@ -336,14 +340,14 @@ contract PostRegistry is GovernedUpgradeable {
 
     function _chargeFee(uint256 postId) internal returns (uint256 fee) {
         fee = protocolPolicy.postingFeeVSP();
-        if (fee == 0) return 0;
+        if (fee == 0) {
+            return 0;
+        }
 
-        bool ok = IERC20(address(vspToken)).transferFrom(
-            _msgSender(),
-            address(this),
-            fee
-        );
-        if (!ok) revert FeeTransferFailed();
+        bool ok = IERC20(address(vspToken)).transferFrom(_msgSender(), address(this), fee);
+        if (!ok) {
+            revert FeeTransferFailed();
+        }
 
         vspToken.burn(fee);
         emit FeeBurned(postId, fee);
@@ -359,10 +363,11 @@ contract PostRegistry is GovernedUpgradeable {
     event ProtocolPolicySet(address indexed oldPolicy, address indexed newPolicy);
 
     function setProtocolPolicy(address newProtocolPolicy) external onlyGovernance {
-        if (newProtocolPolicy == address(0)) revert ZeroAddressPolicy();
+        if (newProtocolPolicy == address(0)) {
+            revert ZeroAddressPolicy();
+        }
         address old = address(protocolPolicy);
         protocolPolicy = IProtocolPolicy(newProtocolPolicy);
         emit ProtocolPolicySet(old, newProtocolPolicy);
     }
-
 }

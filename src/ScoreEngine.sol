@@ -57,9 +57,7 @@ contract ScoreEngine is GovernedUpgradeable {
     error ZeroAddressPolicy();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(
-        address trustedForwarder_
-    ) GovernedUpgradeable(trustedForwarder_) {}
+    constructor(address trustedForwarder_) GovernedUpgradeable(trustedForwarder_) {}
 
     function initialize(
         address governance_,
@@ -83,11 +81,10 @@ contract ScoreEngine is GovernedUpgradeable {
 
     /// @notice Set the maximum number of edges processed in VS computation.
     ///         Governance-only. Values of 0 are rejected.
-    function setEdgeLimits(
-        uint256 maxIncoming_,
-        uint256 maxOutgoing_
-    ) external onlyGovernance {
-        if (maxIncoming_ == 0 || maxOutgoing_ == 0) revert InvalidEdgeLimit();
+    function setEdgeLimits(uint256 maxIncoming_, uint256 maxOutgoing_) external onlyGovernance {
+        if (maxIncoming_ == 0 || maxOutgoing_ == 0) {
+            revert InvalidEdgeLimit();
+        }
         maxIncomingEdges = maxIncoming_;
         maxOutgoingLinks = maxOutgoing_;
         emit EdgeLimitsSet(maxIncoming_, maxOutgoing_);
@@ -97,7 +94,9 @@ contract ScoreEngine is GovernedUpgradeable {
     event ProtocolPolicySet(address indexed oldPolicy, address indexed newPolicy);
 
     function setProtocolPolicy(address newProtocolPolicy) external onlyGovernance {
-        if (newProtocolPolicy == address(0)) revert ZeroAddressPolicy();
+        if (newProtocolPolicy == address(0)) {
+            revert ZeroAddressPolicy();
+        }
         address old = address(protocolPolicy);
         protocolPolicy = IProtocolPolicy(newProtocolPolicy);
         emit ProtocolPolicySet(old, newProtocolPolicy);
@@ -108,9 +107,15 @@ contract ScoreEngine is GovernedUpgradeable {
     function baseVSRay(uint256 postId) public view returns (int256) {
         (uint256 A, uint256 D) = stake.getPostTotals(postId);
         uint256 T = A + D;
-        if (T == 0) return 0;
-        if (A > D) return int256((A * uint256(RAY)) / T);
-        if (D > A) return -int256((D * uint256(RAY)) / T);
+        if (T == 0) {
+            return 0;
+        }
+        if (A > D) {
+            return int256((A * uint256(RAY)) / T);
+        }
+        if (D > A) {
+            return -int256((D * uint256(RAY)) / T);
+        }
         return 0;
     }
 
@@ -119,31 +124,24 @@ contract ScoreEngine is GovernedUpgradeable {
         return _effectiveVSRay(postId, computing, 0);
     }
 
-    function _effectiveVSRay(
-        uint256 postId,
-        uint256[] memory computing,
-        uint256 depth
-    ) internal view returns (int256) {
-        if (depth > MAX_DEPTH) return 0;
+    function _effectiveVSRay(uint256 postId, uint256[] memory computing, uint256 depth) internal view returns (int256) {
+        if (depth > MAX_DEPTH) {
+            return 0;
+        }
 
         // Cycle detection
         for (uint256 i = 0; i < depth; i++) {
-            if (computing[i] == postId) return 0;
+            if (computing[i] == postId) {
+                return 0;
+            }
         }
         computing[depth] = postId;
 
-        (uint256 directSupport, uint256 directChallenge) = stake.getPostTotals(
-            postId
-        );
-        bool directlyActive = protocolPolicy.isActive(
-            directSupport + directChallenge
-        );
+        (uint256 directSupport, uint256 directChallenge) = stake.getPostTotals(postId);
+        bool directlyActive = protocolPolicy.isActive(directSupport + directChallenge);
 
         // Compute incoming link contributions (bounded)
-        (
-            int256 netContribution,
-            uint256 absContribution
-        ) = _sumIncomingContributions(postId, computing, depth);
+        (int256 netContribution, uint256 absContribution) = _sumIncomingContributions(postId, computing, depth);
 
         // Activity gate
         if (!directlyActive && absContribution < protocolPolicy.postingFeeVSP()) {
@@ -161,7 +159,9 @@ contract ScoreEngine is GovernedUpgradeable {
         }
 
         int256 pool = totalSupport + totalChallenge;
-        if (pool == 0) return 0;
+        if (pool == 0) {
+            return 0;
+        }
 
         return _clampRay(((totalSupport - totalChallenge) * RAY) / pool);
     }
@@ -171,11 +171,11 @@ contract ScoreEngine is GovernedUpgradeable {
     ///      with ties broken by linkPostId ascending (older link wins) so the most
     ///      economically significant evidence is always processed and the cap
     ///      decision is deterministic across calls and off-chain indexers.
-    function _sumIncomingContributions(
-        uint256 postId,
-        uint256[] memory computing,
-        uint256 depth
-    ) internal view returns (int256 net, uint256 abs_) {
+    function _sumIncomingContributions(uint256 postId, uint256[] memory computing, uint256 depth)
+        internal
+        view
+        returns (int256 net, uint256 abs_)
+    {
         LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(postId);
         uint256 fee = protocolPolicy.postingFeeVSP();
         uint256 n = inc.length;
@@ -193,11 +193,7 @@ contract ScoreEngine is GovernedUpgradeable {
                 LinkGraph.IncomingEdge memory ke = inc[i];
                 uint256 j = i;
                 while (
-                    j > 0 &&
-                    (
-                        stakes[j - 1] < ks ||
-                        (stakes[j - 1] == ks && inc[j - 1].linkPostId > ke.linkPostId)
-                    )
+                    j > 0 && (stakes[j - 1] < ks || (stakes[j - 1] == ks && inc[j - 1].linkPostId > ke.linkPostId))
                 ) {
                     stakes[j] = stakes[j - 1];
                     inc[j] = inc[j - 1];
@@ -210,9 +206,7 @@ contract ScoreEngine is GovernedUpgradeable {
         }
 
         for (uint256 i = 0; i < n; i++) {
-            int256 contrib = _computeEdgeContribution(
-                inc[i], computing, depth, fee
-            );
+            int256 contrib = _computeEdgeContribution(inc[i], computing, depth, fee);
             if (contrib != 0) {
                 net += contrib;
                 abs_ += _abs(contrib);
@@ -241,37 +235,44 @@ contract ScoreEngine is GovernedUpgradeable {
         uint256 fee
     ) internal view returns (int256) {
         uint256 parentTotal = _totalStake(e.fromClaimPostId);
-        if (!protocolPolicy.isActive(parentTotal)) return 0;
+        if (!protocolPolicy.isActive(parentTotal)) {
+            return 0;
+        }
 
         uint256 linkStake = _totalStake(e.linkPostId);
-        if (!protocolPolicy.isActive(linkStake)) return 0;
+        if (!protocolPolicy.isActive(linkStake)) {
+            return 0;
+        }
 
         // Parent VS (recursive, with cycle detection)
-        int256 parentVS = _effectiveVSRay(
-            e.fromClaimPostId,
-            computing,
-            depth + 1
-        );
-        if (parentVS <= 0) return 0;
+        int256 parentVS = _effectiveVSRay(e.fromClaimPostId, computing, depth + 1);
+        if (parentVS <= 0) {
+            return 0;
+        }
 
         // Link VS
         int256 linkVS = baseVSRay(e.linkPostId);
-        if (linkVS <= 0) return 0;
+        if (linkVS <= 0) {
+            return 0;
+        }
 
         // Parent mass distributed to this link (bounded outgoing sum +
         // top-N membership gate enforcing conservation of influence).
-        (uint256 sumOutgoing, uint256 thresholdStake, uint256 thresholdPostId)
-            = _sumOutgoingLinkStake(e.fromClaimPostId, fee);
-        if (sumOutgoing == 0) return 0;
+        (uint256 sumOutgoing, uint256 thresholdStake, uint256 thresholdPostId) =
+            _sumOutgoingLinkStake(e.fromClaimPostId, fee);
+        if (sumOutgoing == 0) {
+            return 0;
+        }
         if (!_isInTopN(linkStake, e.linkPostId, thresholdStake, thresholdPostId)) {
             return 0;
         }
 
-        int256 numerator = (parentVS * parentTotal.toInt256() * linkStake.toInt256()) /
-            sumOutgoing.toInt256();
+        int256 numerator = (parentVS * parentTotal.toInt256() * linkStake.toInt256()) / sumOutgoing.toInt256();
         int256 contrib = (numerator * linkVS) / (RAY * RAY);
 
-        if (e.isChallenge) contrib = -contrib;
+        if (e.isChallenge) {
+            contrib = -contrib;
+        }
 
         return contrib;
     }
@@ -284,14 +285,17 @@ contract ScoreEngine is GovernedUpgradeable {
     ///      its stake is exactly equal and its postId is at most the
     ///      threshold's postId. When no cap was applied, thresholdStake is 0
     ///      and thresholdPostId is type(uint256).max so every link passes.
-    function _isInTopN(
-        uint256 linkStake,
-        uint256 linkPostId,
-        uint256 thresholdStake,
-        uint256 thresholdPostId
-    ) internal pure returns (bool) {
-        if (linkStake > thresholdStake) return true;
-        if (linkStake < thresholdStake) return false;
+    function _isInTopN(uint256 linkStake, uint256 linkPostId, uint256 thresholdStake, uint256 thresholdPostId)
+        internal
+        pure
+        returns (bool)
+    {
+        if (linkStake > thresholdStake) {
+            return true;
+        }
+        if (linkStake < thresholdStake) {
+            return false;
+        }
         return linkPostId <= thresholdPostId;
     }
 
@@ -305,11 +309,7 @@ contract ScoreEngine is GovernedUpgradeable {
     ///                 outside the parent's top-`maxOutgoingLinks` outgoing).
     /// @dev Same math used internally when computing target's effective VS. Safe to call
     ///      off-chain; iterates over incoming edges once.
-    function getEdgeContribution(uint256 targetClaimPostId, uint256 linkPostId)
-        external
-        view
-        returns (int256 contrib)
-    {
+    function getEdgeContribution(uint256 targetClaimPostId, uint256 linkPostId) external view returns (int256 contrib) {
         LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(targetClaimPostId);
         uint256 fee = protocolPolicy.postingFeeVSP();
         uint256 n = inc.length;
@@ -323,7 +323,9 @@ contract ScoreEngine is GovernedUpgradeable {
                 break;
             }
         }
-        if (idx == type(uint256).max) return 0;
+        if (idx == type(uint256).max) {
+            return 0;
+        }
 
         // Apply the same incoming-cap gate that _sumIncomingContributions uses,
         // so this view reports the same number that effectiveVSRay would see.
@@ -331,7 +333,9 @@ contract ScoreEngine is GovernedUpgradeable {
             uint256 thisStake = _totalStake(linkPostId);
             uint256 ahead = 0;
             for (uint256 i = 0; i < n; i++) {
-                if (i == idx) continue;
+                if (i == idx) {
+                    continue;
+                }
                 uint256 si = _totalStake(inc[i].linkPostId);
                 if (si > thisStake) {
                     ahead++;
@@ -339,7 +343,9 @@ contract ScoreEngine is GovernedUpgradeable {
                     ahead++;
                 }
                 // Early exit: we only need to know whether ahead >= maxIn.
-                if (ahead >= maxIn) return 0;
+                if (ahead >= maxIn) {
+                    return 0;
+                }
             }
         }
 
@@ -369,14 +375,11 @@ contract ScoreEngine is GovernedUpgradeable {
     ///      siblings' shares (excluded from sum), and
     ///      _computeEdgeContribution will short-circuit it via
     ///      protocolPolicy.isActive.
-    function _sumOutgoingLinkStake(
-        uint256 claimPostId,
-        uint256 fee
-    ) internal view returns (
-        uint256 sum,
-        uint256 thresholdStake,
-        uint256 thresholdPostId
-    ) {
+    function _sumOutgoingLinkStake(uint256 claimPostId, uint256 fee)
+        internal
+        view
+        returns (uint256 sum, uint256 thresholdStake, uint256 thresholdPostId)
+    {
         LinkGraph.Edge[] memory outs = graph.getOutgoing(claimPostId);
         uint256 n = outs.length;
         uint256 maxOut = maxOutgoingLinks;
@@ -397,11 +400,7 @@ contract ScoreEngine is GovernedUpgradeable {
                 LinkGraph.Edge memory ke = outs[i];
                 uint256 j = i;
                 while (
-                    j > 0 &&
-                    (
-                        stakes[j - 1] < ks ||
-                        (stakes[j - 1] == ks && outs[j - 1].linkPostId > ke.linkPostId)
-                    )
+                    j > 0 && (stakes[j - 1] < ks || (stakes[j - 1] == ks && outs[j - 1].linkPostId > ke.linkPostId))
                 ) {
                     stakes[j] = stakes[j - 1];
                     outs[j] = outs[j - 1];
@@ -422,13 +421,19 @@ contract ScoreEngine is GovernedUpgradeable {
 
         for (uint256 i = 0; i < n; i++) {
             uint256 t = _totalStake(outs[i].linkPostId);
-            if (t >= fee) sum += t;
+            if (t >= fee) {
+                sum += t;
+            }
         }
     }
 
     function _clampRay(int256 x) internal pure returns (int256) {
-        if (x > RAY) return RAY;
-        if (x < -RAY) return -RAY;
+        if (x > RAY) {
+            return RAY;
+        }
+        if (x < -RAY) {
+            return -RAY;
+        }
         return x;
     }
 

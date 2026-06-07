@@ -9,7 +9,7 @@ import "@openzeppelin/contracts-upgradeable/metatx/ERC2771ContextUpgradeable.sol
 import "./authority/Authority.sol";
 import "./interfaces/IVSPToken.sol";
 // patch_bundle10_5_part2a_timecap: time-based supply cap math (UD60x18 fixed point)
-import { UD60x18, ud } from "@prb/math/src/UD60x18.sol";
+import {UD60x18, ud} from "@prb/math/src/UD60x18.sol";
 
 /// @title VSPToken — VeriSphere ERC-20 with permit, ERC-2771, and UUPS upgradeability
 contract VSPToken is
@@ -105,17 +105,23 @@ contract VSPToken is
     }
 
     modifier onlyMinter() {
-        if (!authority.isMinter(_msgSender())) revert NotMinter();
+        if (!authority.isMinter(_msgSender())) {
+            revert NotMinter();
+        }
         _;
     }
 
     modifier onlyBurner() {
-        if (!authority.isBurner(_msgSender())) revert NotBurner();
+        if (!authority.isBurner(_msgSender())) {
+            revert NotBurner();
+        }
         _;
     }
 
     modifier onlyGovernance() {
-        if (authority.owner() != _msgSender()) revert NotGovernance();
+        if (authority.owner() != _msgSender()) {
+            revert NotGovernance();
+        }
         _;
     }
 
@@ -175,7 +181,12 @@ contract VSPToken is
         return ERC2771ContextUpgradeable._msgData();
     }
 
-    function _contextSuffixLength() internal view override(ContextUpgradeable, ERC2771ContextUpgradeable) returns (uint256) {
+    function _contextSuffixLength()
+        internal
+        view
+        override(ContextUpgradeable, ERC2771ContextUpgradeable)
+        returns (uint256)
+    {
         return ERC2771ContextUpgradeable._contextSuffixLength();
     }
 

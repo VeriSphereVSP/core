@@ -33,7 +33,9 @@ contract ProtocolPolicy is IProtocolPolicy {
     event MinTotalStakeUpdated(uint256 oldValue, uint256 newValue);
 
     modifier onlyTimelock() {
-        if (msg.sender != address(timelock)) revert NotTimelock();
+        if (msg.sender != address(timelock)) {
+            revert NotTimelock();
+        }
         _;
     }
 
@@ -44,14 +46,21 @@ contract ProtocolPolicy is IProtocolPolicy {
         uint256 initialPostingFee,
         uint256 initialMinTotalStake
     ) {
-        if (initialRateMinRay > MAX_RATE_MIN_RAY) revert RateOutOfBounds();
-        if (initialRateMaxRay > MAX_RATE_MAX_RAY) revert RateOutOfBounds();
-        if (initialRateMinRay > initialRateMaxRay) revert RateOutOfBounds();
-        if (
-            initialPostingFee < MIN_POSTING_FEE_WEI ||
-            initialPostingFee > MAX_POSTING_FEE_WEI
-        ) revert FeeOutOfBounds();
-        if (initialMinTotalStake > MAX_MIN_STAKE_WEI) revert MinStakeOutOfBounds();
+        if (initialRateMinRay > MAX_RATE_MIN_RAY) {
+            revert RateOutOfBounds();
+        }
+        if (initialRateMaxRay > MAX_RATE_MAX_RAY) {
+            revert RateOutOfBounds();
+        }
+        if (initialRateMinRay > initialRateMaxRay) {
+            revert RateOutOfBounds();
+        }
+        if (initialPostingFee < MIN_POSTING_FEE_WEI || initialPostingFee > MAX_POSTING_FEE_WEI) {
+            revert FeeOutOfBounds();
+        }
+        if (initialMinTotalStake > MAX_MIN_STAKE_WEI) {
+            revert MinStakeOutOfBounds();
+        }
 
         timelock = TimelockController(payable(timelock_));
         stakeIntRateMinRay = initialRateMinRay;
@@ -73,9 +82,15 @@ contract ProtocolPolicy is IProtocolPolicy {
     }
 
     function setRates(uint256 newMinRay, uint256 newMaxRay) external onlyTimelock {
-        if (newMinRay > MAX_RATE_MIN_RAY) revert RateOutOfBounds();
-        if (newMaxRay > MAX_RATE_MAX_RAY) revert RateOutOfBounds();
-        if (newMinRay > newMaxRay) revert RateOutOfBounds();
+        if (newMinRay > MAX_RATE_MIN_RAY) {
+            revert RateOutOfBounds();
+        }
+        if (newMaxRay > MAX_RATE_MAX_RAY) {
+            revert RateOutOfBounds();
+        }
+        if (newMinRay > newMaxRay) {
+            revert RateOutOfBounds();
+        }
         emit RatesUpdated(stakeIntRateMinRay, stakeIntRateMaxRay, newMinRay, newMaxRay);
         stakeIntRateMinRay = newMinRay;
         stakeIntRateMaxRay = newMaxRay;
@@ -91,7 +106,9 @@ contract ProtocolPolicy is IProtocolPolicy {
     }
 
     function setMinTotalStake(uint256 newValue) external onlyTimelock {
-        if (newValue > MAX_MIN_STAKE_WEI) revert MinStakeOutOfBounds();
+        if (newValue > MAX_MIN_STAKE_WEI) {
+            revert MinStakeOutOfBounds();
+        }
         uint256 old = minTotalStakeVSP;
         minTotalStakeVSP = newValue;
         emit MinTotalStakeUpdated(old, newValue);

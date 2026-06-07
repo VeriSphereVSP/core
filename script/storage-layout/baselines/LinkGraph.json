@@ -1,0 +1,184 @@
+{
+  "_meta": {
+    "contract": "src/LinkGraph.sol:LinkGraph",
+    "forge_version": "forge Version: 1.5.1-stable",
+    "generated_at": "2026-06-06T22:12:43Z",
+    "layout_sha256": "fb03396e84e6a488de35bd3ac65191f1c71af10a6366d27f24a1f5cbcfe50c93",
+    "note": "Storage-layout regression baseline. Regenerate ONLY for an intended, reviewed, upgrade-safe layout change via check.sh --update.",
+    "schema": 2
+  },
+  "layout": {
+    "storage": [
+      {
+        "label": "governance",
+        "offset": 0,
+        "slot": 0,
+        "type": "t_address"
+      },
+      {
+        "label": "pendingGovernance",
+        "offset": 0,
+        "slot": 1,
+        "type": "t_address"
+      },
+      {
+        "label": "__gap",
+        "offset": 0,
+        "slot": 2,
+        "type": "t_array(t_uint256)100_storage"
+      },
+      {
+        "label": "registry",
+        "offset": 0,
+        "slot": 102,
+        "type": "t_address"
+      },
+      {
+        "label": "outgoing",
+        "offset": 0,
+        "slot": 103,
+        "type": "t_mapping(t_uint256,t_array(t_struct(Edge)_storage)dyn_storage)"
+      },
+      {
+        "label": "incoming",
+        "offset": 0,
+        "slot": 104,
+        "type": "t_mapping(t_uint256,t_array(t_struct(IncomingEdge)_storage)dyn_storage)"
+      },
+      {
+        "label": "_unused_visited",
+        "offset": 0,
+        "slot": 105,
+        "type": "t_mapping(t_uint256,t_uint256)"
+      },
+      {
+        "label": "_unused_visitToken",
+        "offset": 0,
+        "slot": 106,
+        "type": "t_uint256"
+      },
+      {
+        "label": "edgeExists",
+        "offset": 0,
+        "slot": 107,
+        "type": "t_mapping(t_bytes32,t_bool)"
+      },
+      {
+        "label": "__gap",
+        "offset": 0,
+        "slot": 108,
+        "type": "t_array(t_uint256)500_storage"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_array(t_struct(Edge)_storage)dyn_storage": {
+        "base": "t_struct(Edge)_storage",
+        "encoding": "dynamic_array",
+        "numberOfBytes": "32"
+      },
+      "t_array(t_struct(IncomingEdge)_storage)dyn_storage": {
+        "base": "t_struct(IncomingEdge)_storage",
+        "encoding": "dynamic_array",
+        "numberOfBytes": "32"
+      },
+      "t_array(t_uint256)100_storage": {
+        "base": "t_uint256",
+        "encoding": "inplace",
+        "numberOfBytes": "3200"
+      },
+      "t_array(t_uint256)500_storage": {
+        "base": "t_uint256",
+        "encoding": "inplace",
+        "numberOfBytes": "16000"
+      },
+      "t_bool": {
+        "encoding": "inplace",
+        "numberOfBytes": "1"
+      },
+      "t_bytes32": {
+        "encoding": "inplace",
+        "numberOfBytes": "32"
+      },
+      "t_mapping(t_bytes32,t_bool)": {
+        "encoding": "mapping",
+        "key": "t_bytes32",
+        "numberOfBytes": "32",
+        "value": "t_bool"
+      },
+      "t_mapping(t_uint256,t_array(t_struct(Edge)_storage)dyn_storage)": {
+        "encoding": "mapping",
+        "key": "t_uint256",
+        "numberOfBytes": "32",
+        "value": "t_array(t_struct(Edge)_storage)dyn_storage"
+      },
+      "t_mapping(t_uint256,t_array(t_struct(IncomingEdge)_storage)dyn_storage)": {
+        "encoding": "mapping",
+        "key": "t_uint256",
+        "numberOfBytes": "32",
+        "value": "t_array(t_struct(IncomingEdge)_storage)dyn_storage"
+      },
+      "t_mapping(t_uint256,t_uint256)": {
+        "encoding": "mapping",
+        "key": "t_uint256",
+        "numberOfBytes": "32",
+        "value": "t_uint256"
+      },
+      "t_struct(Edge)_storage": {
+        "encoding": "inplace",
+        "members": [
+          {
+            "label": "toClaimPostId",
+            "offset": 0,
+            "slot": 0,
+            "type": "t_uint256"
+          },
+          {
+            "label": "linkPostId",
+            "offset": 0,
+            "slot": 1,
+            "type": "t_uint256"
+          },
+          {
+            "label": "isChallenge",
+            "offset": 0,
+            "slot": 2,
+            "type": "t_bool"
+          }
+        ],
+        "numberOfBytes": "96"
+      },
+      "t_struct(IncomingEdge)_storage": {
+        "encoding": "inplace",
+        "members": [
+          {
+            "label": "fromClaimPostId",
+            "offset": 0,
+            "slot": 0,
+            "type": "t_uint256"
+          },
+          {
+            "label": "linkPostId",
+            "offset": 0,
+            "slot": 1,
+            "type": "t_uint256"
+          },
+          {
+            "label": "isChallenge",
+            "offset": 0,
+            "slot": 2,
+            "type": "t_bool"
+          }
+        ],
+        "numberOfBytes": "96"
+      },
+      "t_uint256": {
+        "encoding": "inplace",
+        "numberOfBytes": "32"
+      }
+    }
+  }
+}

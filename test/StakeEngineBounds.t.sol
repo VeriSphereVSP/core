@@ -18,7 +18,7 @@ contract StakeEngineBoundsTest is Test {
 
     address alice = address(0xA11CE);
 
-    uint256 internal CAP;             // local copy of MAX_STAKE_AMOUNT
+    uint256 internal CAP; // local copy of MAX_STAKE_AMOUNT
     uint256 internal constant POST_A = 1;
 
     function setUp() public {
@@ -29,10 +29,7 @@ contract StakeEngineBoundsTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new StakeEngine(address(0))),
-                    abi.encodeCall(
-                        StakeEngine.initialize,
-                        (address(this), address(token), address(policy))
-                    )
+                    abi.encodeCall(StakeEngine.initialize, (address(this), address(token), address(policy)))
                 )
             )
         );
@@ -65,25 +62,13 @@ contract StakeEngineBoundsTest is Test {
     }
 
     function test_stake_overCap_reverts() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                StakeEngine.StakeAmountTooLarge.selector,
-                CAP + 1,
-                CAP
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(StakeEngine.StakeAmountTooLarge.selector, CAP + 1, CAP));
         vm.prank(alice);
         engine.stake(POST_A, 0, CAP + 1);
     }
 
     function test_stake_wayOverCap_reverts() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                StakeEngine.StakeAmountTooLarge.selector,
-                type(uint256).max,
-                CAP
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(StakeEngine.StakeAmountTooLarge.selector, type(uint256).max, CAP));
         vm.prank(alice);
         engine.stake(POST_A, 0, type(uint256).max);
     }
@@ -93,7 +78,7 @@ contract StakeEngineBoundsTest is Test {
         vm.prank(alice);
         engine.stake(POST_A, 0, 100 ether);
 
-        (uint256 sup, ) = engine.getPostTotals(POST_A);
+        (uint256 sup,) = engine.getPostTotals(POST_A);
         assertEq(sup, 100 ether);
     }
 
@@ -105,19 +90,13 @@ contract StakeEngineBoundsTest is Test {
         vm.prank(alice);
         engine.setStake(POST_A, int256(CAP));
 
-        (uint256 sup, ) = engine.getPostTotals(POST_A);
+        (uint256 sup,) = engine.getPostTotals(POST_A);
         assertEq(sup, CAP);
     }
 
     function test_setStake_overCap_reverts() public {
         int256 target = int256(CAP) + 1;
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                StakeEngine.SetStakeTargetTooLarge.selector,
-                target,
-                CAP
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(StakeEngine.SetStakeTargetTooLarge.selector, target, CAP));
         vm.prank(alice);
         engine.setStake(POST_A, target);
     }
@@ -138,14 +117,8 @@ contract StakeEngineBoundsTest is Test {
     }
 
     function test_setStake_negativeOverCap_reverts() public {
-        int256 target = -int256(CAP) - 1;  // |target| = CAP + 1
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                StakeEngine.SetStakeTargetTooLarge.selector,
-                target,
-                CAP
-            )
-        );
+        int256 target = -int256(CAP) - 1; // |target| = CAP + 1
+        vm.expectRevert(abi.encodeWithSelector(StakeEngine.SetStakeTargetTooLarge.selector, target, CAP));
         vm.prank(alice);
         engine.setStake(POST_A, target);
     }

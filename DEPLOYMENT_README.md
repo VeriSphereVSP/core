@@ -31,18 +31,24 @@ You must have:
 
 ## Environment Variables
 
-Create a file named `.env` in the repository root:
+Deploy keys live in the SOPS-encrypted secrets (`env/secrets.<network>.enc.yaml`),
+never in a plaintext `.env`. Load them into your shell first:
 
 ```bash
-PRIVATE_KEY=0xYOUR_PRIVATE_KEY
-DEPLOY_ENV=testnet
-GOVERNANCE_MULTISIG=0xYOUR_GOV_ADDRESS
-AVALANCHE_FUJI_RPC=https://api.avax-test.network/ext/bc/C/rpc
+source ~/verisphere/tools/vsp-secrets-load.sh
+vsp-secrets-load     # exports DEPLOYER_PRIVATE_KEY, RPC_URL, … (60-min expiry)
+```
+
+Non-secret deploy knobs can be exported inline or kept in `env/app.<env>.env`:
+
+```bash
+export DEPLOY_ENV=testnet
+export GOVERNANCE_MULTISIG=0xYOUR_GOV_ADDRESS
 ```
 
 Notes:
 
-- `PRIVATE_KEY` must control a funded EOA
+- `DEPLOYER_PRIVATE_KEY` (from SOPS) must control a funded EOA
 - For `DEPLOY_ENV=dev`, governance == deployer
 - For `DEPLOY_ENV=testnet__/INLINE_CODE__ or __INLINE_CODE__mainnet`, governance is external
 
@@ -76,9 +82,9 @@ All tests must pass before deployment.
 Deploy to Avalanche Fuji:
 
 ```bash
-source .env
+vsp-secrets-load                      # exports DEPLOYER_PRIVATE_KEY + RPC_URL (skip if loaded)
 forge script script/Deploy.s.sol:Deploy \
-  --rpc-url $AVALANCHE_FUJI_RPC \
+  --rpc-url "${RPC_URL:-https://api.avax-test.network/ext/bc/C/rpc}" \
   --broadcast \
   --verify
 ```

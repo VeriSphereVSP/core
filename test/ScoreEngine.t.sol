@@ -29,10 +29,7 @@ contract ScoreEngineTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new PostRegistry(address(0))),
-                    abi.encodeCall(
-                        PostRegistry.initialize,
-                        (address(this), address(vsp), address(policy))
-                    )
+                    abi.encodeCall(PostRegistry.initialize, (address(this), address(vsp), address(policy)))
                 )
             )
         );
@@ -40,8 +37,7 @@ contract ScoreEngineTest is Test {
         graph = LinkGraph(
             address(
                 new ERC1967Proxy(
-                    address(new LinkGraph(address(0))),
-                    abi.encodeCall(LinkGraph.initialize, (address(this)))
+                    address(new LinkGraph(address(0))), abi.encodeCall(LinkGraph.initialize, (address(this)))
                 )
             )
         );
@@ -53,10 +49,7 @@ contract ScoreEngineTest is Test {
             address(
                 new ERC1967Proxy(
                     address(new StakeEngine(address(0))),
-                    abi.encodeCall(
-                        StakeEngine.initialize,
-                        (address(this), address(vsp), address(policy))
-                    )
+                    abi.encodeCall(StakeEngine.initialize, (address(this), address(vsp), address(policy)))
                 )
             )
         );

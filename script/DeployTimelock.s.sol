@@ -24,12 +24,7 @@ contract DeployTimelock is Script {
         address admin = address(0);
 
         vm.startBroadcast(deployerKey);
-        TimelockController timelock = new TimelockController(
-            minDelay,
-            proposers,
-            executors,
-            admin
-        );
+        TimelockController timelock = new TimelockController(minDelay, proposers, executors, admin);
         vm.stopBroadcast();
 
         console.log("Timelock deployed at:", address(timelock));

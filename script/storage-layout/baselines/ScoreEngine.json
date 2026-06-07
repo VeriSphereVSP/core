@@ -1,0 +1,116 @@
+{
+  "_meta": {
+    "contract": "src/ScoreEngine.sol:ScoreEngine",
+    "forge_version": "forge Version: 1.5.1-stable",
+    "generated_at": "2026-06-06T22:12:43Z",
+    "layout_sha256": "deda713e12c0c8a08cfc234c2bebb20bcd9ad628aa4420c5ccbb429e1e124c88",
+    "note": "Storage-layout regression baseline. Regenerate ONLY for an intended, reviewed, upgrade-safe layout change via check.sh --update.",
+    "schema": 2
+  },
+  "layout": {
+    "storage": [
+      {
+        "label": "governance",
+        "offset": 0,
+        "slot": 0,
+        "type": "t_address"
+      },
+      {
+        "label": "pendingGovernance",
+        "offset": 0,
+        "slot": 1,
+        "type": "t_address"
+      },
+      {
+        "label": "__gap",
+        "offset": 0,
+        "slot": 2,
+        "type": "t_array(t_uint256)100_storage"
+      },
+      {
+        "label": "registry",
+        "offset": 0,
+        "slot": 102,
+        "type": "t_contract(PostRegistry)"
+      },
+      {
+        "label": "stake",
+        "offset": 0,
+        "slot": 103,
+        "type": "t_contract(IStakeEngine)"
+      },
+      {
+        "label": "graph",
+        "offset": 0,
+        "slot": 104,
+        "type": "t_contract(LinkGraph)"
+      },
+      {
+        "label": "protocolPolicy",
+        "offset": 0,
+        "slot": 105,
+        "type": "t_contract(IProtocolPolicy)"
+      },
+      {
+        "label": "__reservedSlot1_unused",
+        "offset": 0,
+        "slot": 106,
+        "type": "t_address"
+      },
+      {
+        "label": "maxIncomingEdges",
+        "offset": 0,
+        "slot": 107,
+        "type": "t_uint256"
+      },
+      {
+        "label": "maxOutgoingLinks",
+        "offset": 0,
+        "slot": 108,
+        "type": "t_uint256"
+      },
+      {
+        "label": "__gap",
+        "offset": 0,
+        "slot": 109,
+        "type": "t_array(t_uint256)500_storage"
+      }
+    ],
+    "types": {
+      "t_address": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_array(t_uint256)100_storage": {
+        "base": "t_uint256",
+        "encoding": "inplace",
+        "numberOfBytes": "3200"
+      },
+      "t_array(t_uint256)500_storage": {
+        "base": "t_uint256",
+        "encoding": "inplace",
+        "numberOfBytes": "16000"
+      },
+      "t_contract(IProtocolPolicy)": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_contract(IStakeEngine)": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_contract(LinkGraph)": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_contract(PostRegistry)": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_uint256": {
+        "encoding": "inplace",
+        "numberOfBytes": "32"
+      }
+    }
+  }
+}

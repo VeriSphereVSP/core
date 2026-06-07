@@ -20,8 +20,8 @@ contract MockProtocolPolicy is IProtocolPolicy {
     constructor(uint256 fee) {
         _postingFeeVSP = fee;
         stakeIntRateMinRay = 0;
-        stakeIntRateMaxRay = 50e16;   // 50% APR — matches old MockStakeRatePolicy
-        minTotalStakeVSP = 0;          // matches old MockClaimActivityPolicy (any > 0 is active)
+        stakeIntRateMaxRay = 50e16; // 50% APR — matches old MockStakeRatePolicy
+        minTotalStakeVSP = 0; // matches old MockClaimActivityPolicy (any > 0 is active)
     }
 
     function postingFeeVSP() external view override returns (uint256) {
@@ -31,15 +31,23 @@ contract MockProtocolPolicy is IProtocolPolicy {
     function isActive(uint256 totalStake) external view override returns (bool) {
         // Match old MockClaimActivityPolicy semantics when threshold is 0:
         // "active if > 0". With a configured threshold, use it.
-        if (minTotalStakeVSP == 0) return totalStake > 0;
+        if (minTotalStakeVSP == 0) {
+            return totalStake > 0;
+        }
         return totalStake >= minTotalStakeVSP;
     }
 
     // ── Test-only setters (NO access control — test-mock only) ───────
-    function setPostingFee(uint256 f) external { _postingFeeVSP = f; }
+    function setPostingFee(uint256 f) external {
+        _postingFeeVSP = f;
+    }
+
     function setRates(uint256 minR, uint256 maxR) external {
         stakeIntRateMinRay = minR;
         stakeIntRateMaxRay = maxR;
     }
-    function setMinTotalStake(uint256 v) external { minTotalStakeVSP = v; }
+
+    function setMinTotalStake(uint256 v) external {
+        minTotalStakeVSP = v;
+    }
 }

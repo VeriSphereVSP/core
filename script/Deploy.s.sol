@@ -55,10 +55,10 @@ contract Deploy is Script {
         // Constructor: (timelock, rateMinRay, rateMaxRay, postingFee, minTotalStakeVSP)
         ProtocolPolicy protocolPolicy = new ProtocolPolicy(
             address(timelock),
-            0,                            // rateMin: 0% APR floor
-            1387610638335997952,          // rateMax: 200% APR daily-compounded
-            1e18,                         // postingFee: 1 VSP (within [1e15, 100e18])
-            1e18                          // minTotalStake: 1 VSP (within [0, 10000e18])
+            0, // rateMin: 0% APR floor
+            1387610638335997952, // rateMax: 200% APR daily-compounded
+            1e18, // postingFee: 1 VSP (within [1e15, 100e18])
+            1e18 // minTotalStake: 1 VSP (within [0, 10000e18])
         );
 
         VSPToken tokenImpl = new VSPToken(
@@ -79,19 +79,14 @@ contract Deploy is Script {
             vm.envOr("VSP_GROWTH_BASE_PER_YEAR", uint256(10 * 1e18)),
             vm.envOr("VSP_STAKE_ENGINE_ADDRESS", address(0)) // patch_bundle10_5_part2a_stakeengine_exempt
         ); // patch_bundle10_5_part2a_timecap: 4-arg constructor
-        ERC1967Proxy tokenProxy = new ERC1967Proxy(
-            address(tokenImpl),
-            abi.encodeCall(VSPToken.initialize, (address(authority)))
-        );
+        ERC1967Proxy tokenProxy =
+            new ERC1967Proxy(address(tokenImpl), abi.encodeCall(VSPToken.initialize, (address(authority))));
         VSPToken token = VSPToken(address(tokenProxy));
 
         // patch_bundle10_5_part1_fixup_doc_sync_sol: deploy-time tripwire for the bug fixed on Fuji 2026-05-29.
         // If a future change to the constructor arg above ever sets a non-zero
         // forwarder, the deploy itself reverts here. See THREAT-MODEL §4.6 F11/G-47.
-        require(
-            token.trustedForwarder() == address(0),
-            "Deploy: VSPToken must not trust any forwarder"
-        );
+        require(token.trustedForwarder() == address(0), "Deploy: VSPToken must not trust any forwarder");
 
         authority.setMinter(gov, true);
         authority.setBurner(gov, true);
@@ -99,11 +94,7 @@ contract Deploy is Script {
         // Implementation contracts take forwarder in constructor (OZ 5.5 immutable pattern)
         StakeEngine stakeImpl = new StakeEngine(forwarder);
         ERC1967Proxy stakeProxy = new ERC1967Proxy(
-            address(stakeImpl),
-            abi.encodeCall(
-                StakeEngine.initialize,
-                (gov, address(token), address(protocolPolicy))
-            )
+            address(stakeImpl), abi.encodeCall(StakeEngine.initialize, (gov, address(token), address(protocolPolicy)))
         );
         StakeEngine stake = StakeEngine(address(stakeProxy));
 
@@ -113,10 +104,7 @@ contract Deploy is Script {
         PostRegistry registryImpl = new PostRegistry(forwarder);
         ERC1967Proxy registryProxy = new ERC1967Proxy(
             address(registryImpl),
-            abi.encodeCall(
-                PostRegistry.initialize,
-                (gov, address(token), address(protocolPolicy))
-            )
+            abi.encodeCall(PostRegistry.initialize, (gov, address(token), address(protocolPolicy)))
         );
         PostRegistry registry = PostRegistry(address(registryProxy));
 
@@ -124,10 +112,7 @@ contract Deploy is Script {
         authority.setBurner(address(registry), true);
 
         LinkGraph graphImpl = new LinkGraph(forwarder);
-        ERC1967Proxy graphProxy = new ERC1967Proxy(
-            address(graphImpl),
-            abi.encodeCall(LinkGraph.initialize, (gov))
-        );
+        ERC1967Proxy graphProxy = new ERC1967Proxy(address(graphImpl), abi.encodeCall(LinkGraph.initialize, (gov)));
         LinkGraph graph = LinkGraph(address(graphProxy));
 
         graph.setRegistry(address(registry));
@@ -144,7 +129,7 @@ contract Deploy is Script {
                     address(stake),
                     address(graph),
                     address(protocolPolicy),
-                    address(0)                  // reserved (was activityPolicy pre-Patch-17)
+                    address(0) // reserved (was activityPolicy pre-Patch-17)
                 )
             )
         );
@@ -155,14 +140,7 @@ contract Deploy is Script {
             address(viewsImpl),
             abi.encodeCall(
                 ProtocolViews.initialize,
-                (
-                    gov,
-                    address(registry),
-                    address(stake),
-                    address(graph),
-                    address(score),
-                    address(protocolPolicy)
-                )
+                (gov, address(registry), address(stake), address(graph), address(score), address(protocolPolicy))
             )
         );
 
@@ -183,12 +161,8 @@ contract Deploy is Script {
             console.log("TimelockController:", address(timelock));
             console.log("Authority pending owner:", address(timelock));
             console.log("");
-            console.log(
-                "NEXT STEP: Schedule and execute authority.acceptOwner()"
-            );
-            console.log(
-                "via the TimelockController to complete ownership transfer."
-            );
+            console.log("NEXT STEP: Schedule and execute authority.acceptOwner()");
+            console.log("via the TimelockController to complete ownership transfer.");
         }
 
         vm.stopBroadcast();
@@ -196,7 +170,6 @@ contract Deploy is Script {
         string memory json = string.concat(
             '{"Authority":"',
             vm.toString(address(authority)),
-
             '","TimelockController":"',
             vm.toString(address(timelock)),
             '","VSPToken":"',
@@ -216,6 +189,6 @@ contract Deploy is Script {
             '"}'
         );
 
-        vm.writeFile("broadcast/Deploy.s.sol/43113/addresses.json", json);
+        vm.writeFile(string.concat("broadcast/Deploy.s.sol/", vm.toString(block.chainid), "/addresses.json"), json);
     }
 }

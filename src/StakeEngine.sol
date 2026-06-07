@@ -59,9 +59,11 @@ contract StakeEngine is GovernedUpgradeable {
     uint256 public sMax;
     uint256 public sMaxPostId;
 
-    struct TopPost { uint256 postId; uint256 total; }
+    struct TopPost {
+        uint256 postId;
+        uint256 total;
+    }
     TopPost[3] private topPosts;
-
 
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
@@ -107,8 +109,8 @@ contract StakeEngine is GovernedUpgradeable {
     uint256 public constant MAX_SMAX_DECAY_EPOCHS = 10000;
     // bundle05_a: G-9/G-10 bounds (10M VSP cap on stake amount and setStake target).
     uint256 public constant MAX_STAKE_AMOUNT = 10_000_000 * 1e18;
-    uint256 private constant DEFAULT_SMAX_DECAY_RATE_RAY = 9e17;  // 10% daily decay
-    uint256 private constant DEFAULT_SMAX_DECAY_MAX_EPOCHS = 30;   // Full decay in ~30 days
+    uint256 private constant DEFAULT_SMAX_DECAY_RATE_RAY = 9e17; // 10% daily decay
+    uint256 private constant DEFAULT_SMAX_DECAY_MAX_EPOCHS = 30; // Full decay in ~30 days
 
     // ------------------------------------------------------------
     // Errors
@@ -116,7 +118,7 @@ contract StakeEngine is GovernedUpgradeable {
 
     error InvalidSide();
     error AmountZero();
-    error StakeAmountTooLarge(uint256 amount, uint256 max);   // bundle05_a G-9
+    error StakeAmountTooLarge(uint256 amount, uint256 max); // bundle05_a G-9
     error SetStakeTargetTooLarge(int256 target, uint256 max); // bundle05_a G-10
     error OppositeSideStaked();
     error NotEnoughStake();
@@ -172,7 +174,9 @@ contract StakeEngine is GovernedUpgradeable {
     error AlreadyInitializedV2();
 
     modifier whenNotPaused() {
-        if (paused) revert WhenPaused();
+        if (paused) {
+            revert WhenPaused();
+        }
         _;
     }
 
@@ -180,7 +184,9 @@ contract StakeEngine is GovernedUpgradeable {
     constructor(address trustedForwarder_) GovernedUpgradeable(trustedForwarder_) {}
 
     function initialize(address governance_, address vspToken_, address protocolPolicy_) external initializer {
-        if (vspToken_ == address(0)) revert ZeroAddressToken();
+        if (vspToken_ == address(0)) {
+            revert ZeroAddressToken();
+        }
         __GovernedUpgradeable_init(governance_);
         ERC20_TOKEN = IERC20(vspToken_);
         VSP_TOKEN = IVSPToken(vspToken_);
@@ -206,7 +212,9 @@ contract StakeEngine is GovernedUpgradeable {
     /// @notice Set the sMax decay rate. Governance-only.
     ///         Must be in (0, RAY]. 995e15 = 0.5%/day, RAY = no decay.
     function setSMaxDecayRate(uint256 newRate) external onlyGovernance {
-        if (newRate == 0 || newRate > RAY) revert InvalidDecayRate();
+        if (newRate == 0 || newRate > RAY) {
+            revert InvalidDecayRate();
+        }
         emit SMaxDecayRateSet(sMaxDecayRateRay, newRate);
         sMaxDecayRateRay = newRate;
     }
@@ -225,19 +233,22 @@ contract StakeEngine is GovernedUpgradeable {
     event ProtocolPolicySet(address indexed oldPolicy, address indexed newPolicy);
 
     function setProtocolPolicy(address newProtocolPolicy) external onlyGovernance {
-        if (newProtocolPolicy == address(0)) revert ZeroAddressPolicy();
+        if (newProtocolPolicy == address(0)) {
+            revert ZeroAddressPolicy();
+        }
         address old = address(protocolPolicy);
         protocolPolicy = IProtocolPolicy(newProtocolPolicy);
         emit ProtocolPolicySet(old, newProtocolPolicy);
     }
-
 
     // -------- Pause / Guardian admin (patch12b) --------
 
     /// @notice One-shot V2 initializer. Sets initial Guardian after
     ///         upgrade-in-place. Only governance, only once.
     function initializeV2(address guardian_) external onlyGovernance {
-        if (_initializedV2) revert AlreadyInitializedV2();
+        if (_initializedV2) {
+            revert AlreadyInitializedV2();
+        }
         _initializedV2 = true;
         guardian = guardian_;
         emit GuardianSet(address(0), guardian_);
@@ -271,7 +282,9 @@ contract StakeEngine is GovernedUpgradeable {
     /// @notice Legacy setter retained for ABI compatibility.
 
     function compactLots(uint256 postId, uint8 side) external onlyGovernance nonReentrant {
-        if (side > 1) revert InvalidSide();
+        if (side > 1) {
+            revert InvalidSide();
+        }
         PostState storage ps = posts[postId];
         SideQueue storage q = ps.sides[side];
         uint256 removed = 0;
@@ -295,7 +308,9 @@ contract StakeEngine is GovernedUpgradeable {
                 removed++;
             }
         }
-        if (removed == 0) revert NoGhostLots();
+        if (removed == 0) {
+            revert NoGhostLots();
+        }
 
         // Recompute positions after swap-and-pop changes array layout
         _recomputeWeightedPositions(q);
@@ -320,12 +335,18 @@ contract StakeEngine is GovernedUpgradeable {
     }
 
     function getUserStake(address user, uint256 postId, uint8 side) external view returns (uint256) {
-        if (side > 1) revert InvalidSide();
+        if (side > 1) {
+            revert InvalidSide();
+        }
         PostState storage ps = posts[postId];
         uint256 idx = _getLotIndex(ps, user, side);
-        if (idx == 0) return 0;
+        if (idx == 0) {
+            return 0;
+        }
         StakeLot storage lot = ps.sides[side].lots[idx - 1];
-        if (lot.amount == 0) return 0;
+        if (lot.amount == 0) {
+            return 0;
+        }
         uint256 currentEpoch = _currentEpoch();
         uint256 snapshotEpoch = ps.lastSnapshotEpoch;
         if (snapshotEpoch == 0 || currentEpoch <= snapshotEpoch) {
@@ -335,17 +356,28 @@ contract StakeEngine is GovernedUpgradeable {
     }
 
     function getUserLotInfo(address user, uint256 postId, uint8 side)
-        external view returns (
-            uint256 amount, uint256 weightedPosition, uint256 entryEpoch,
-            uint256 sideTotal, uint256 positionWeight
+        external
+        view
+        returns (
+            uint256 amount,
+            uint256 weightedPosition,
+            uint256 entryEpoch,
+            uint256 sideTotal,
+            uint256 positionWeight
         )
     {
-        if (side > 1) revert InvalidSide();
+        if (side > 1) {
+            revert InvalidSide();
+        }
         PostState storage ps = posts[postId];
         uint256 idx = _getLotIndex(ps, user, side);
-        if (idx == 0) return (0, 0, 0, 0, 0);
+        if (idx == 0) {
+            return (0, 0, 0, 0, 0);
+        }
         StakeLot storage lot = ps.sides[side].lots[idx - 1];
-        if (lot.amount == 0) return (0, 0, 0, 0, 0);
+        if (lot.amount == 0) {
+            return (0, 0, 0, 0, 0);
+        }
 
         uint256 currentEpoch = _currentEpoch();
         uint256 projectedAmount = lot.amount;
@@ -358,7 +390,9 @@ contract StakeEngine is GovernedUpgradeable {
             // Midpoint model: positionWeight = (T - wPos) / T
             uint256 behindMe = lot.weightedPosition < sideTotal ? sideTotal - lot.weightedPosition : 0;
             positionWeight = (behindMe * RAY) / sideTotal;
-            if (positionWeight > RAY) positionWeight = RAY;
+            if (positionWeight > RAY) {
+                positionWeight = RAY;
+            }
         } else {
             positionWeight = RAY;
         }
@@ -370,10 +404,16 @@ contract StakeEngine is GovernedUpgradeable {
     // ------------------------------------------------------------
 
     function stake(uint256 postId, uint8 side, uint256 amount) external nonReentrant whenNotPaused {
-        if (amount == 0) revert AmountZero();
-        if (side > 1) revert InvalidSide();
+        if (amount == 0) {
+            revert AmountZero();
+        }
+        if (side > 1) {
+            revert InvalidSide();
+        }
         // bundle05_a G-9: cap stake amount.
-        if (amount > MAX_STAKE_AMOUNT) revert StakeAmountTooLarge(amount, MAX_STAKE_AMOUNT);
+        if (amount > MAX_STAKE_AMOUNT) {
+            revert StakeAmountTooLarge(amount, MAX_STAKE_AMOUNT);
+        }
         PostState storage psCheck = posts[postId];
         uint8 opposite = 1 - side;
         uint256 oppIdx = _getLotIndex(psCheck, _msgSender(), opposite);
@@ -383,7 +423,9 @@ contract StakeEngine is GovernedUpgradeable {
         require(ERC20_TOKEN.transferFrom(_msgSender(), address(this), amount), "VSP transfer failed");
         PostState storage ps = posts[postId];
         uint256 epoch = _currentEpoch();
-        if (ps.lastSnapshotEpoch == 0) ps.lastSnapshotEpoch = epoch;
+        if (ps.lastSnapshotEpoch == 0) {
+            ps.lastSnapshotEpoch = epoch;
+        }
         _maybeSnapshot(postId, epoch);
         _addOrMergeLot(postId, side, amount, _msgSender());
         emit StakeAdded(postId, _msgSender(), side, amount);
@@ -393,16 +435,32 @@ contract StakeEngine is GovernedUpgradeable {
     // Withdraw
     // ------------------------------------------------------------
 
-    function withdraw(uint256 postId, uint8 side, uint256 amount, bool /* lifo */) external nonReentrant {
-        if (amount == 0) revert AmountZero();
-        if (side > 1) revert InvalidSide();
+    function withdraw(
+        uint256 postId,
+        uint8 side,
+        uint256 amount,
+        bool /* lifo */
+    )
+        external
+        nonReentrant
+    {
+        if (amount == 0) {
+            revert AmountZero();
+        }
+        if (side > 1) {
+            revert InvalidSide();
+        }
         PostState storage ps = posts[postId];
         uint256 epoch = _currentEpoch();
         _maybeSnapshot(postId, epoch);
         uint256 idx = _getLotIndex(ps, _msgSender(), side);
-        if (idx == 0) revert NotEnoughStake();
+        if (idx == 0) {
+            revert NotEnoughStake();
+        }
         StakeLot storage lot = ps.sides[side].lots[idx - 1];
-        if (lot.amount < amount) revert NotEnoughStake();
+        if (lot.amount < amount) {
+            revert NotEnoughStake();
+        }
         lot.amount -= amount;
         ps.sides[side].total -= amount;
         // O(n) recalculate all midpoint positions
@@ -426,7 +484,6 @@ contract StakeEngine is GovernedUpgradeable {
     // Internal: Snapshot logic
     // ------------------------------------------------------------
 
-
     /// @notice Set the user's stake on a post to a target value.
     ///         target > 0: desired support stake amount
     ///         target < 0: desired challenge stake amount (absolute value)
@@ -434,7 +491,9 @@ contract StakeEngine is GovernedUpgradeable {
     function setStake(uint256 postId, int256 target) external nonReentrant whenNotPaused {
         // bundle05_a G-10: cap |target| at MAX_STAKE_AMOUNT.
         uint256 absT_b05a = target >= 0 ? uint256(target) : uint256(-target);
-        if (absT_b05a > MAX_STAKE_AMOUNT) revert SetStakeTargetTooLarge(target, MAX_STAKE_AMOUNT);
+        if (absT_b05a > MAX_STAKE_AMOUNT) {
+            revert SetStakeTargetTooLarge(target, MAX_STAKE_AMOUNT);
+        }
         PostState storage ps = posts[postId];
         uint256 epoch = _currentEpoch();
         _maybeSnapshot(postId, epoch);
@@ -448,10 +507,16 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 absTarget = target >= 0 ? uint256(target) : uint256(-target);
 
         if (target == 0) {
-            if (currentSup > 0) _doWithdraw(postId, ps, user, 0, currentSup);
-            if (currentChal > 0) _doWithdraw(postId, ps, user, 1, currentChal);
+            if (currentSup > 0) {
+                _doWithdraw(postId, ps, user, 0, currentSup);
+            }
+            if (currentChal > 0) {
+                _doWithdraw(postId, ps, user, 1, currentChal);
+            }
         } else if (target > 0) {
-            if (currentChal > 0) _doWithdraw(postId, ps, user, 1, currentChal);
+            if (currentChal > 0) {
+                _doWithdraw(postId, ps, user, 1, currentChal);
+            }
             if (absTarget > currentSup) {
                 uint256 toStake = absTarget - currentSup;
                 require(ERC20_TOKEN.transferFrom(user, address(this), toStake), "VSP transfer failed");
@@ -461,7 +526,9 @@ contract StakeEngine is GovernedUpgradeable {
                 _doWithdraw(postId, ps, user, 0, currentSup - absTarget);
             }
         } else {
-            if (currentSup > 0) _doWithdraw(postId, ps, user, 0, currentSup);
+            if (currentSup > 0) {
+                _doWithdraw(postId, ps, user, 0, currentSup);
+            }
             if (absTarget > currentChal) {
                 uint256 toStake = absTarget - currentChal;
                 require(ERC20_TOKEN.transferFrom(user, address(this), toStake), "VSP transfer failed");
@@ -479,9 +546,13 @@ contract StakeEngine is GovernedUpgradeable {
     /// @dev Withdraw helper for setStake (no reentrancy guard - caller is guarded)
     function _doWithdraw(uint256 postId, PostState storage ps, address user, uint8 side, uint256 amount) internal {
         uint256 idx = _getLotIndex(ps, user, side);
-        if (idx == 0) return;
+        if (idx == 0) {
+            return;
+        }
         StakeLot storage lot = ps.sides[side].lots[idx - 1];
-        if (amount > lot.amount) amount = lot.amount;
+        if (amount > lot.amount) {
+            amount = lot.amount;
+        }
         lot.amount -= amount;
         ps.sides[side].total -= amount;
         _recomputeWeightedPositions(ps.sides[side]);
@@ -497,7 +568,9 @@ contract StakeEngine is GovernedUpgradeable {
             return;
         }
         uint256 periodInEpochs = snapshotPeriod / EPOCH_LENGTH;
-        if (periodInEpochs == 0) periodInEpochs = 1;
+        if (periodInEpochs == 0) {
+            periodInEpochs = 1;
+        }
         if (currentEpoch >= lastEpoch + periodInEpochs) {
             _forceSnapshot(postId, currentEpoch);
         }
@@ -507,7 +580,9 @@ contract StakeEngine is GovernedUpgradeable {
         PostState storage ps = posts[postId];
         uint256 lastEpoch = ps.lastSnapshotEpoch;
         if (lastEpoch == 0 || currentEpoch <= lastEpoch) {
-            if (lastEpoch == 0) ps.lastSnapshotEpoch = currentEpoch;
+            if (lastEpoch == 0) {
+                ps.lastSnapshotEpoch = currentEpoch;
+            }
             return;
         }
 
@@ -580,16 +655,22 @@ contract StakeEngine is GovernedUpgradeable {
     ///      is needed, so no lot starts the next epoch at posWeight == 0.
     function _rescalePositions(uint256 postId, uint8 side, SideQueue storage q) internal {
         uint256 n = q.lots.length;
-        if (n == 0 || q.total == 0) return;
+        if (n == 0 || q.total == 0) {
+            return;
+        }
 
         uint256 maxPos = 0;
         for (uint256 i = 0; i < n; i++) {
             uint256 p = q.lots[i].weightedPosition;
-            if (p > maxPos) maxPos = p;
+            if (p > maxPos) {
+                maxPos = p;
+            }
         }
         // Rescale if any position >= q.total (using >= not > so that
         // a position exactly equal to sideTotal is also fixed).
-        if (maxPos < q.total) return;
+        if (maxPos < q.total) {
+            return;
+        }
 
         // Target: map maxPos to (q.total - 1) so that the highest
         // position always has posShare < RAY → posWeight > 0.
@@ -601,8 +682,7 @@ contract StakeEngine is GovernedUpgradeable {
             }
         } else {
             for (uint256 i = 0; i < n; i++) {
-                q.lots[i].weightedPosition =
-                    (q.lots[i].weightedPosition * target) / maxPos;
+                q.lots[i].weightedPosition = (q.lots[i].weightedPosition * target) / maxPos;
             }
         }
         emit PositionsRescaled(postId, side, maxPos, target);
@@ -612,23 +692,32 @@ contract StakeEngine is GovernedUpgradeable {
     ///      Each lot's delta = amount * rBase * (T - wPos) / T.
     ///      No redistribution: unminted rate is simply not created.
     ///      Individual earn is capped: (T - wPos) / T <= 1, so delta <= amount * rBase.
-    function _applyEpoch(
-        SideQueue storage q, bool supportWins, bool isSupportSide, uint256 rBase
-    ) internal returns (uint256 minted, uint256 burned) {
-        if (q.total == 0 || rBase == 0 || sMax == 0) return (0, 0);
+    function _applyEpoch(SideQueue storage q, bool supportWins, bool isSupportSide, uint256 rBase)
+        internal
+        returns (uint256 minted, uint256 burned)
+    {
+        if (q.total == 0 || rBase == 0 || sMax == 0) {
+            return (0, 0);
+        }
         bool aligned = (supportWins && isSupportSide) || (!supportWins && !isSupportSide);
         uint256 T = q.total;
 
         for (uint256 i = 0; i < q.lots.length; i++) {
             StakeLot storage lot = q.lots[i];
-            if (lot.amount == 0) continue;
+            if (lot.amount == 0) {
+                continue;
+            }
             // midpointRate = (T - wPos) / T, clamped to [0, RAY]
             uint256 behindMe = lot.weightedPosition < T ? T - lot.weightedPosition : 0;
             uint256 midpointRate = (behindMe * RAY) / T;
-            if (midpointRate > RAY) midpointRate = RAY;
+            if (midpointRate > RAY) {
+                midpointRate = RAY;
+            }
             // delta = amount * rBase * midpointRate / RAY
             uint256 delta = (lot.amount * rBase * midpointRate) / (RAY * RAY);
-            if (delta == 0) continue;
+            if (delta == 0) {
+                continue;
+            }
             if (aligned) {
                 lot.amount += delta;
                 minted += delta;
@@ -655,7 +744,12 @@ contract StakeEngine is GovernedUpgradeable {
         } else {
             // New staker: append to end of queue
             uint256 newIdx = q.lots.length;
-            q.lots.push(StakeLot({ staker: staker, amount: amount, side: side, weightedPosition: 0, entryEpoch: _currentEpoch() }));
+            q.lots
+                .push(
+                    StakeLot({
+                        staker: staker, amount: amount, side: side, weightedPosition: 0, entryEpoch: _currentEpoch()
+                    })
+                );
             _setLotIndex(ps, staker, side, newIdx + 1);
         }
         q.total += amount;
@@ -666,33 +760,48 @@ contract StakeEngine is GovernedUpgradeable {
     }
 
     function _getLotIndex(PostState storage ps, address user, uint8 side) internal view returns (uint256) {
-        if (side == 0) return ps.lotIndex0[user];
+        if (side == 0) {
+            return ps.lotIndex0[user];
+        }
         return ps.lotIndex1[user];
     }
 
     function _setLotIndex(PostState storage ps, address user, uint8 side, uint256 idxPlusOne) internal {
-        if (side == 0) { ps.lotIndex0[user] = idxPlusOne; }
-        else { ps.lotIndex1[user] = idxPlusOne; }
+        if (side == 0) {
+            ps.lotIndex0[user] = idxPlusOne;
+        } else {
+            ps.lotIndex1[user] = idxPlusOne;
+        }
     }
 
     // ------------------------------------------------------------
     // Internal: View projection
     // ------------------------------------------------------------
 
-    function _projectTotals(PostState storage ps, uint256 currentEpoch) internal view returns (uint256 projS, uint256 projC) {
+    function _projectTotals(PostState storage ps, uint256 currentEpoch)
+        internal
+        view
+        returns (uint256 projS, uint256 projC)
+    {
         SideQueue storage qs = ps.sides[0];
         SideQueue storage qc = ps.sides[1];
         uint256 A = qs.total;
         uint256 D = qc.total;
         uint256 T = A + D;
-        if (T == 0 || sMax == 0) return (A, D);
+        if (T == 0 || sMax == 0) {
+            return (A, D);
+        }
         int256 vsNum = int256(2 * A) - int256(T);
-        if (vsNum == 0) return (A, D);
+        if (vsNum == 0) {
+            return (A, D);
+        }
         bool supportWins = vsNum > 0;
         uint256 absVS = uint256(vsNum > 0 ? vsNum : -vsNum);
         uint256 epochsElapsed = currentEpoch - ps.lastSnapshotEpoch;
         uint256 projSMax = _projectSMaxDecay(currentEpoch);
-        if (projSMax == 0) return (A, D);
+        if (projSMax == 0) {
+            return (A, D);
+        }
         uint256 vRay = (absVS * RAY) / T;
         uint256 participationRay = (T * RAY) / projSMax;
         uint256 rMin = (protocolPolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
@@ -702,18 +811,28 @@ contract StakeEngine is GovernedUpgradeable {
         projC = _projectSideTotal(qc, supportWins, false, rBase);
     }
 
-    function _projectSideTotal(SideQueue storage q, bool supportWins, bool isSupportSide, uint256 rBase) internal view returns (uint256 total) {
-        if (q.total == 0 || rBase == 0) return q.total;
+    function _projectSideTotal(SideQueue storage q, bool supportWins, bool isSupportSide, uint256 rBase)
+        internal
+        view
+        returns (uint256 total)
+    {
+        if (q.total == 0 || rBase == 0) {
+            return q.total;
+        }
         bool aligned = (supportWins && isSupportSide) || (!supportWins && !isSupportSide);
         uint256 T = q.total;
 
         total = 0;
         for (uint256 i = 0; i < q.lots.length; i++) {
             StakeLot storage lot = q.lots[i];
-            if (lot.amount == 0) continue;
+            if (lot.amount == 0) {
+                continue;
+            }
             uint256 behindMe = lot.weightedPosition < T ? T - lot.weightedPosition : 0;
             uint256 midpointRate = (behindMe * RAY) / T;
-            if (midpointRate > RAY) midpointRate = RAY;
+            if (midpointRate > RAY) {
+                midpointRate = RAY;
+            }
             uint256 delta = (lot.amount * rBase * midpointRate) / (RAY * RAY);
             if (aligned) {
                 total += lot.amount + delta;
@@ -724,36 +843,52 @@ contract StakeEngine is GovernedUpgradeable {
         }
     }
 
-    function _projectLotValue(PostState storage ps, StakeLot storage lot, uint256 currentEpoch) internal view returns (uint256) {
+    function _projectLotValue(PostState storage ps, StakeLot storage lot, uint256 currentEpoch)
+        internal
+        view
+        returns (uint256)
+    {
         SideQueue storage qs = ps.sides[0];
         SideQueue storage qc = ps.sides[1];
         uint256 A = qs.total;
         uint256 D = qc.total;
         uint256 T = A + D;
-        if (T == 0 || sMax == 0) return lot.amount;
+        if (T == 0 || sMax == 0) {
+            return lot.amount;
+        }
         int256 vsNum = int256(2 * A) - int256(T);
-        if (vsNum == 0) return lot.amount;
+        if (vsNum == 0) {
+            return lot.amount;
+        }
         bool supportWins = vsNum > 0;
         bool isSupportSide = lot.side == 0;
         bool aligned = (supportWins && isSupportSide) || (!supportWins && !isSupportSide);
         uint256 absVS = uint256(vsNum > 0 ? vsNum : -vsNum);
         uint256 epochsElapsed = currentEpoch - ps.lastSnapshotEpoch;
         uint256 projSMax = _projectSMaxDecay(currentEpoch);
-        if (projSMax == 0) return lot.amount;
+        if (projSMax == 0) {
+            return lot.amount;
+        }
         uint256 vRay = (absVS * RAY) / T;
         uint256 participationRay = (T * RAY) / projSMax;
-        if (participationRay > RAY) participationRay = RAY;
+        if (participationRay > RAY) {
+            participationRay = RAY;
+        }
         uint256 rMin = (protocolPolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
         uint256 rMax = (protocolPolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
         uint256 rBase = rMin + ((rMax - rMin) * vRay * participationRay) / (RAY * RAY);
 
         SideQueue storage mySide = isSupportSide ? qs : qc;
         uint256 sideTotal = mySide.total;
-        if (sideTotal == 0 || rBase == 0) return lot.amount;
+        if (sideTotal == 0 || rBase == 0) {
+            return lot.amount;
+        }
 
         uint256 behindMe = lot.weightedPosition < sideTotal ? sideTotal - lot.weightedPosition : 0;
         uint256 midpointRate = (behindMe * RAY) / sideTotal;
-        if (midpointRate > RAY) midpointRate = RAY;
+        if (midpointRate > RAY) {
+            midpointRate = RAY;
+        }
         uint256 delta = (lot.amount * rBase * midpointRate) / (RAY * RAY);
         if (aligned) {
             return lot.amount + delta;
@@ -767,42 +902,59 @@ contract StakeEngine is GovernedUpgradeable {
     // Internal: sMax management
     // ------------------------------------------------------------
 
-    function _currentEpoch() internal view returns (uint256) { return block.timestamp / EPOCH_LENGTH; }
+    function _currentEpoch() internal view returns (uint256) {
+        return block.timestamp / EPOCH_LENGTH;
+    }
 
     function _updateSMax(uint256 postId, uint256 postTotal) internal {
         uint256 slot = type(uint256).max;
         for (uint256 i = 0; i < 3; i++) {
-            if (topPosts[i].postId == postId && topPosts[i].total > 0) { slot = i; break; }
+            if (topPosts[i].postId == postId && topPosts[i].total > 0) {
+                slot = i;
+                break;
+            }
         }
         if (slot != type(uint256).max) {
             topPosts[slot].total = postTotal;
             while (slot > 0 && topPosts[slot].total > topPosts[slot - 1].total) {
-                TopPost memory tmp = topPosts[slot]; topPosts[slot] = topPosts[slot - 1]; topPosts[slot - 1] = tmp; slot--;
+                TopPost memory tmp = topPosts[slot];
+                topPosts[slot] = topPosts[slot - 1];
+                topPosts[slot - 1] = tmp;
+                slot--;
             }
             while (slot < 2 && topPosts[slot].total < topPosts[slot + 1].total) {
-                TopPost memory tmp = topPosts[slot]; topPosts[slot] = topPosts[slot + 1]; topPosts[slot + 1] = tmp; slot++;
+                TopPost memory tmp = topPosts[slot];
+                topPosts[slot] = topPosts[slot + 1];
+                topPosts[slot + 1] = tmp;
+                slot++;
             }
         } else {
             for (uint256 i = 0; i < 3; i++) {
                 if (postTotal > topPosts[i].total) {
-                    for (uint256 j = 2; j > i; j--) { topPosts[j] = topPosts[j - 1]; }
+                    for (uint256 j = 2; j > i; j--) {
+                        topPosts[j] = topPosts[j - 1];
+                    }
                     topPosts[i] = TopPost(postId, postTotal);
                     break;
                 }
             }
         }
         for (uint256 i = 0; i < 3; i++) {
-            if (topPosts[i].total == 0) topPosts[i] = TopPost(0, 0);
+            if (topPosts[i].total == 0) {
+                topPosts[i] = TopPost(0, 0);
+            }
         }
         uint256 leaderTotal = topPosts[0].total;
         uint256 currentEpoch = _currentEpoch();
         if (leaderTotal > 0) {
             if (leaderTotal >= sMax) {
-                sMax = leaderTotal; sMaxLastUpdatedEpoch = currentEpoch;
+                sMax = leaderTotal;
+                sMaxLastUpdatedEpoch = currentEpoch;
             } else {
                 // Snap down to current leader immediately.
                 // Decay is only a fallback for stale topPosts array.
-                sMax = leaderTotal; sMaxLastUpdatedEpoch = currentEpoch;
+                sMax = leaderTotal;
+                sMaxLastUpdatedEpoch = currentEpoch;
             }
             sMaxPostId = topPosts[0].postId;
         } else {
@@ -811,37 +963,72 @@ contract StakeEngine is GovernedUpgradeable {
     }
 
     function _applySMaxDecay(uint256 currentEpoch) internal returns (uint256) {
-        if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) { sMaxLastUpdatedEpoch = currentEpoch; return sMax; }
+        if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) {
+            sMaxLastUpdatedEpoch = currentEpoch;
+            return sMax;
+        }
         uint256 elapsed = currentEpoch - sMaxLastUpdatedEpoch;
-        if (elapsed > sMaxDecayMaxEpochs) elapsed = sMaxDecayMaxEpochs;
+        if (elapsed > sMaxDecayMaxEpochs) {
+            elapsed = sMaxDecayMaxEpochs;
+        }
         uint256 decayed = sMax;
-        for (uint256 i = 0; i < elapsed; i++) { decayed = (decayed * sMaxDecayRateRay) / RAY; if (decayed == 0) break; }
-        sMax = decayed; sMaxLastUpdatedEpoch = currentEpoch;
+        for (uint256 i = 0; i < elapsed; i++) {
+            decayed = (decayed * sMaxDecayRateRay) / RAY;
+            if (decayed == 0) {
+                break;
+            }
+        }
+        sMax = decayed;
+        sMaxLastUpdatedEpoch = currentEpoch;
         return decayed;
     }
 
     function rescanSMax(uint256[] calldata postIds) external onlyGovernance {
-        for (uint256 i = 0; i < 3; i++) topPosts[i] = TopPost(0, 0);
+        for (uint256 i = 0; i < 3; i++) {
+            topPosts[i] = TopPost(0, 0);
+        }
         for (uint256 i = 0; i < postIds.length; i++) {
             uint256 pid = postIds[i];
             PostState storage ps = posts[pid];
             uint256 total = ps.sides[0].total + ps.sides[1].total;
-            if (total == 0) continue;
+            if (total == 0) {
+                continue;
+            }
             _updateSMax(pid, total);
         }
         emit SMaxRescanned(topPosts[0].total, topPosts[0].postId);
     }
 
-    function getTopPosts() external view returns (uint256 p0, uint256 t0, uint256 p1, uint256 t1, uint256 p2, uint256 t2) {
-        return (topPosts[0].postId, topPosts[0].total, topPosts[1].postId, topPosts[1].total, topPosts[2].postId, topPosts[2].total);
+    function getTopPosts()
+        external
+        view
+        returns (uint256 p0, uint256 t0, uint256 p1, uint256 t1, uint256 p2, uint256 t2)
+    {
+        return (
+            topPosts[0].postId,
+            topPosts[0].total,
+            topPosts[1].postId,
+            topPosts[1].total,
+            topPosts[2].postId,
+            topPosts[2].total
+        );
     }
 
     function _projectSMaxDecay(uint256 currentEpoch) internal view returns (uint256) {
-        if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) return sMax;
+        if (sMax == 0 || currentEpoch <= sMaxLastUpdatedEpoch) {
+            return sMax;
+        }
         uint256 elapsed = currentEpoch - sMaxLastUpdatedEpoch;
-        if (elapsed > sMaxDecayMaxEpochs) elapsed = sMaxDecayMaxEpochs;
+        if (elapsed > sMaxDecayMaxEpochs) {
+            elapsed = sMaxDecayMaxEpochs;
+        }
         uint256 decayed = sMax;
-        for (uint256 i = 0; i < elapsed; i++) { decayed = (decayed * sMaxDecayRateRay) / RAY; if (decayed == 0) break; }
+        for (uint256 i = 0; i < elapsed; i++) {
+            decayed = (decayed * sMaxDecayRateRay) / RAY;
+            if (decayed == 0) {
+                break;
+            }
+        }
         uint256 leader = topPosts[0].total;
         return decayed > leader ? decayed : leader;
     }
@@ -851,7 +1038,9 @@ contract StakeEngine is GovernedUpgradeable {
     function _recomputeWeightedPositions(SideQueue storage q) internal {
         uint256 cumulative = 0;
         for (uint256 i = 0; i < q.lots.length; i++) {
-            if (q.lots[i].amount == 0) continue;
+            if (q.lots[i].amount == 0) {
+                continue;
+            }
             q.lots[i].weightedPosition = cumulative + q.lots[i].amount / 2;
             cumulative += q.lots[i].amount;
         }
@@ -859,7 +1048,9 @@ contract StakeEngine is GovernedUpgradeable {
 
     function _recomputeSideTotal(SideQueue storage q) internal {
         uint256 total = 0;
-        for (uint256 i = 0; i < q.lots.length; i++) { total += q.lots[i].amount; }
+        for (uint256 i = 0; i < q.lots.length; i++) {
+            total += q.lots[i].amount;
+        }
         q.total = total;
     }
 

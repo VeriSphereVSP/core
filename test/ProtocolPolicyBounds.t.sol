@@ -23,11 +23,11 @@ contract ProtocolPolicyBoundsTest is Test {
 
     function test_constants() public {
         ProtocolPolicy p = _newPolicy();
-        assertEq(p.MAX_RATE_MIN_RAY(),    1e18);
-        assertEq(p.MAX_RATE_MAX_RAY(),    5e18);
+        assertEq(p.MAX_RATE_MIN_RAY(), 1e18);
+        assertEq(p.MAX_RATE_MAX_RAY(), 5e18);
         assertEq(p.MIN_POSTING_FEE_WEI(), 1e15);
         assertEq(p.MAX_POSTING_FEE_WEI(), 100e18);
-        assertEq(p.MAX_MIN_STAKE_WEI(),   10000e18);
+        assertEq(p.MAX_MIN_STAKE_WEI(), 10000e18);
     }
 
     function test_ctor_acceptsBounds() public {

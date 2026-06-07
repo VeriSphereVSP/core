@@ -1,4 +1,5 @@
 [profile.default]
+extra_output = ["storageLayout"]  # patch_storage_layout_gate: emit storage layout for the CI gate
 src = "src"
 test = "test"
 script = "script"
@@ -30,3 +31,6 @@ fuji = { key = "", chain = 43113 }
 # For Avalanche mainnet, RouteScan *does* require a key (optional for now)
 avalanche = { key = "", chain = 43114 }
 
+
+[fmt]
+single_line_statement_blocks = "multi"

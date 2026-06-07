@@ -47,27 +47,18 @@ contract ScoreEngineFuzzTest is Test {
         registry = PostRegistry(
             _proxy(
                 address(new PostRegistry(address(0))),
-                abi.encodeCall(
-                    PostRegistry.initialize,
-                    (address(this), address(vsp), address(policy))
-                )
+                abi.encodeCall(PostRegistry.initialize, (address(this), address(vsp), address(policy)))
             )
         );
 
         graph = LinkGraph(
-            _proxy(
-                address(new LinkGraph(address(0))),
-                abi.encodeCall(LinkGraph.initialize, (address(this)))
-            )
+            _proxy(address(new LinkGraph(address(0))), abi.encodeCall(LinkGraph.initialize, (address(this))))
         );
 
         stakeEng = StakeEngine(
             _proxy(
                 address(new StakeEngine(address(0))),
-                abi.encodeCall(
-                    StakeEngine.initialize,
-                    (address(this), address(vsp), address(policy))
-                )
+                abi.encodeCall(StakeEngine.initialize, (address(this), address(vsp), address(policy)))
             )
         );
 
@@ -111,13 +102,11 @@ contract ScoreEngineFuzzTest is Test {
     ///      Support is staked by address(this); challenge by `challenger`.
     ///      This avoids OppositeSideStaked() since each address stakes
     ///      only one side.
-    function _createAndStake(
-        string memory text,
-        uint256 support,
-        uint256 challenge
-    ) internal returns (uint256 postId) {
+    function _createAndStake(string memory text, uint256 support, uint256 challenge) internal returns (uint256 postId) {
         postId = registry.createClaim(text);
-        if (support > 0) stakeEng.stake(postId, 0, support);
+        if (support > 0) {
+            stakeEng.stake(postId, 0, support);
+        }
         if (challenge > 0) {
             vm.prank(challenger);
             stakeEng.stake(postId, 1, challenge);
@@ -128,10 +117,7 @@ contract ScoreEngineFuzzTest is Test {
     // Invariant: baseVS is always in [-RAY, +RAY]
     // ────────────────────────────────────────────────────────────
 
-    function testFuzz_BaseVSBounded(
-        uint128 support,
-        uint128 challenge
-    ) public {
+    function testFuzz_BaseVSBounded(uint128 support, uint128 challenge) public {
         uint256 sup = bound(uint256(support), 0, 1e24); // bundle05_a
         uint256 chal = bound(uint256(challenge), 0, 1e24); // bundle05_a
         vm.assume(sup + chal > 0); // need at least some stake
@@ -149,10 +135,7 @@ contract ScoreEngineFuzzTest is Test {
     // Invariant: baseVS sign matches majority side
     // ────────────────────────────────────────────────────────────
 
-    function testFuzz_BaseVSSignMatchesMajority(
-        uint128 support,
-        uint128 challenge
-    ) public {
+    function testFuzz_BaseVSSignMatchesMajority(uint128 support, uint128 challenge) public {
         uint256 sup = bound(uint256(support), FEE, 1e24); // bundle05_a
         uint256 chal = bound(uint256(challenge), FEE, 1e24); // bundle05_a
         vm.assume(sup != chal);
@@ -172,10 +155,7 @@ contract ScoreEngineFuzzTest is Test {
     // Invariant: effectiveVS is always in [-RAY, +RAY]
     // ────────────────────────────────────────────────────────────
 
-    function testFuzz_EffectiveVSBounded(
-        uint128 support,
-        uint128 challenge
-    ) public {
+    function testFuzz_EffectiveVSBounded(uint128 support, uint128 challenge) public {
         uint256 sup = bound(uint256(support), FEE, 1e24); // bundle05_a
         uint256 chal = bound(uint256(challenge), 0, 1e24); // bundle05_a
 
@@ -218,10 +198,7 @@ contract ScoreEngineFuzzTest is Test {
     // Credibility gate: negative-VS parent contributes nothing
     // ────────────────────────────────────────────────────────────
 
-    function testFuzz_NegativeParentContributesNothing(
-        uint128 parentChallenge,
-        uint128 childSupport
-    ) public {
+    function testFuzz_NegativeParentContributesNothing(uint128 parentChallenge, uint128 childSupport) public {
         uint256 pChal = bound(uint256(parentChallenge), FEE, 1e24); // bundle05_a
         uint256 cSup = bound(uint256(childSupport), FEE, 1e24); // bundle05_a
 
@@ -246,10 +223,7 @@ contract ScoreEngineFuzzTest is Test {
     // Credibility gate: negative-VS link contributes nothing
     // ────────────────────────────────────────────────────────────
 
-    function testFuzz_NegativeLinkContributesNothing(
-        uint128 parentSupport,
-        uint128 childSupport
-    ) public {
+    function testFuzz_NegativeLinkContributesNothing(uint128 parentSupport, uint128 childSupport) public {
         uint256 pSup = bound(uint256(parentSupport), FEE, 1e24); // bundle05_a
         uint256 cSup = bound(uint256(childSupport), FEE, 1e24); // bundle05_a
 
@@ -276,10 +250,7 @@ contract ScoreEngineFuzzTest is Test {
     // Challenge link pushes child VS down
     // ────────────────────────────────────────────────────────────
 
-    function testFuzz_ChallengeLinkReducesChildVS(
-        uint128 parentSupport,
-        uint128 childSupport
-    ) public {
+    function testFuzz_ChallengeLinkReducesChildVS(uint128 parentSupport, uint128 childSupport) public {
         uint256 pSup = bound(uint256(parentSupport), FEE * 2, 1e24); // bundle05_a
         uint256 cSup = bound(uint256(childSupport), FEE * 2, 1e24); // bundle05_a
 
@@ -335,10 +306,7 @@ contract ScoreEngineFuzzTest is Test {
     // Cycle handling: mutual challenge doesn't revert
     // ────────────────────────────────────────────────────────────
 
-    function testFuzz_MutualChallengeDoesNotRevert(
-        uint128 stakeA,
-        uint128 stakeB
-    ) public {
+    function testFuzz_MutualChallengeDoesNotRevert(uint128 stakeA, uint128 stakeB) public {
         uint256 sA = bound(uint256(stakeA), FEE * 2, 1e24); // bundle05_a
         uint256 sB = bound(uint256(stakeB), FEE * 2, 1e24); // bundle05_a
 
@@ -374,10 +342,7 @@ contract ScoreEngineFuzzTest is Test {
     ///         (support-challenge)*RAY/(support+challenge) (symmetric subtraction).
     ///         These are mathematically different formulas that agree on sign
     ///         and extremes (0, +/-RAY) but diverge at intermediate values.
-    function testFuzz_NoLinkEffectiveSameSign(
-        uint128 support,
-        uint128 challenge
-    ) public {
+    function testFuzz_NoLinkEffectiveSameSign(uint128 support, uint128 challenge) public {
         uint256 sup = bound(uint256(support), FEE, 1e24); // bundle05_a
         uint256 chal = bound(uint256(challenge), 0, 1e24); // bundle05_a
 
@@ -424,11 +389,7 @@ contract ScoreEngineFuzzTest is Test {
         uint256[5] memory linkIds;
         uint256[5] memory linkStakes = [uint256(60), 70, 80, 90, 100];
         for (uint256 i = 0; i < 5; i++) {
-            tgt[i] = _createAndStake(
-                string.concat("ct_target_", vm.toString(i)),
-                100,
-                0
-            );
+            tgt[i] = _createAndStake(string.concat("ct_target_", vm.toString(i)), 100, 0);
             linkIds[i] = registry.createLink(parent, tgt[i], false);
             stakeEng.stake(linkIds[i], 0, linkStakes[i]);
         }
@@ -475,11 +436,7 @@ contract ScoreEngineFuzzTest is Test {
         uint256[3] memory tgt;
         uint256[3] memory linkIds;
         for (uint256 i = 0; i < 3; i++) {
-            tgt[i] = _createAndStake(
-                string.concat("tb_target_", vm.toString(i)),
-                100,
-                0
-            );
+            tgt[i] = _createAndStake(string.concat("tb_target_", vm.toString(i)), 100, 0);
             linkIds[i] = registry.createLink(parent, tgt[i], false);
             stakeEng.stake(linkIds[i], 0, 75);
         }
@@ -490,9 +447,6 @@ contract ScoreEngineFuzzTest is Test {
 
         assertGt(c0, 0, "earliest tied link must be kept");
         assertGt(c1, 0, "second-earliest tied link must be kept");
-        assertEq(
-            c2, 0,
-            "latest tied link must be cut by linkPostId-ascending tiebreak"
-        );
+        assertEq(c2, 0, "latest tied link must be cut by linkPostId-ascending tiebreak");
     }
 }

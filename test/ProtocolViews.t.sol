@@ -37,7 +37,7 @@ contract ProtocolViewsTest is Test {
                     abi.encodeCall(
                         PostRegistry.initialize,
                         (
-                            address(this),     // governance
+                            address(this), // governance
                             address(vsp),
                             address(policy)
                         )
@@ -74,7 +74,7 @@ contract ProtocolViewsTest is Test {
                     abi.encodeCall(
                         StakeEngine.initialize,
                         (
-                            address(this),           // governance
+                            address(this), // governance
                             address(vsp),
                             address(policy)
                         )
@@ -93,7 +93,7 @@ contract ProtocolViewsTest is Test {
                     abi.encodeCall(
                         ScoreEngine.initialize,
                         (
-                            address(this),           // governance
+                            address(this), // governance
                             address(registry),
                             address(stake),
                             address(graph),
@@ -115,7 +115,7 @@ contract ProtocolViewsTest is Test {
                     abi.encodeCall(
                         ProtocolViews.initialize,
                         (
-                            address(this),           // governance
+                            address(this), // governance
                             address(registry),
                             address(stake),
                             address(graph),

@@ -6,25 +6,14 @@ interface IStakeEngine {
     function SIDE_CHALLENGE() external pure returns (uint8);
 
     function stake(uint256 postId, uint8 side, uint256 amount) external;
-    function withdraw(
-        uint256 postId,
-        uint8 side,
-        uint256 amount,
-        bool lifo
-    ) external;
+    function withdraw(uint256 postId, uint8 side, uint256 amount, bool lifo) external;
     function updatePost(uint256 postId) external;
 
     /// @notice Returns projected totals (already includes unrealized gains/losses).
-    function getPostTotals(
-        uint256 postId
-    ) external view returns (uint256 support, uint256 challenge);
+    function getPostTotals(uint256 postId) external view returns (uint256 support, uint256 challenge);
 
     /// @notice Returns projected user stake (already includes unrealized gains/losses).
-    function getUserStake(
-        address user,
-        uint256 postId,
-        uint8 side
-    ) external view returns (uint256);
+    function getUserStake(address user, uint256 postId, uint8 side) external view returns (uint256);
 
     /// @notice Remove zero-amount ghost lots. Governance-only.
     function compactLots(uint256 postId, uint8 side) external;
@@ -34,10 +23,14 @@ interface IStakeEngine {
     function setSMaxDecayRate(uint256 newRate) external;
     function setSMaxDecayMaxEpochs(uint256 newMax) external;
     /// @notice Returns lot info for a user's position.
-    function getUserLotInfo(
-        address user, uint256 postId, uint8 side
-    ) external view returns (
-        uint256 amount, uint256 weightedPosition, uint256 entryEpoch,
-        uint256 sideTotal, uint256 positionWeight
-    );
+    function getUserLotInfo(address user, uint256 postId, uint8 side)
+        external
+        view
+        returns (
+            uint256 amount,
+            uint256 weightedPosition,
+            uint256 entryEpoch,
+            uint256 sideTotal,
+            uint256 positionWeight
+        );
 }

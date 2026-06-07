@@ -1,0 +1,41 @@
+{
+  "_meta": {
+    "contract": "src/VSPToken.sol:VSPToken",
+    "forge_version": "forge Version: 1.5.1-stable",
+    "generated_at": "2026-06-06T22:12:42Z",
+    "layout_sha256": "0b1448c0be9927bec521781557328057cb4d47f80f1b44871f099ea3eeac372c",
+    "note": "Storage-layout regression baseline. Regenerate ONLY for an intended, reviewed, upgrade-safe layout change via check.sh --update.",
+    "schema": 2
+  },
+  "layout": {
+    "storage": [
+      {
+        "label": "authority",
+        "offset": 0,
+        "slot": 0,
+        "type": "t_contract(Authority)"
+      },
+      {
+        "label": "__gap",
+        "offset": 0,
+        "slot": 1,
+        "type": "t_array(t_uint256)500_storage"
+      }
+    ],
+    "types": {
+      "t_array(t_uint256)500_storage": {
+        "base": "t_uint256",
+        "encoding": "inplace",
+        "numberOfBytes": "16000"
+      },
+      "t_contract(Authority)": {
+        "encoding": "inplace",
+        "numberOfBytes": "20"
+      },
+      "t_uint256": {
+        "encoding": "inplace",
+        "numberOfBytes": "32"
+      }
+    }
+  }
+}

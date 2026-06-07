@@ -42,10 +42,7 @@ contract GasFixesTest is Test {
         );
 
         graph = LinkGraph(
-            _proxy(
-                address(new LinkGraph(address(0))),
-                abi.encodeCall(LinkGraph.initialize, (address(this)))
-            )
+            _proxy(address(new LinkGraph(address(0))), abi.encodeCall(LinkGraph.initialize, (address(this))))
         );
 
         stakeEng = StakeEngine(
@@ -60,7 +57,14 @@ contract GasFixesTest is Test {
                 address(new ScoreEngine(address(0))),
                 abi.encodeCall(
                     ScoreEngine.initialize,
-                    (address(this), address(registry), address(stakeEng), address(graph), address(policy), address(policy))
+                    (
+                        address(this),
+                        address(registry),
+                        address(stakeEng),
+                        address(graph),
+                        address(policy),
+                        address(policy)
+                    )
                 )
             )
         );
@@ -118,9 +122,7 @@ contract GasFixesTest is Test {
 
         // Create 5 parent claims all supporting target
         for (uint256 i = 0; i < 5; i++) {
-            uint256 parent = registry.createClaim(
-                string(abi.encodePacked("parent ", vm.toString(i)))
-            );
+            uint256 parent = registry.createClaim(string(abi.encodePacked("parent ", vm.toString(i))));
             stakeEng.stake(parent, 0, 100);
             uint256 link = registry.createLink(parent, target, false);
             stakeEng.stake(link, 0, 100);
@@ -187,11 +189,11 @@ contract GasFixesTest is Test {
         uint256 postId = 1;
 
         // Three users stake
-        stakeEng.stake(postId, 0, 100 ether);  // governance (index 1)
+        stakeEng.stake(postId, 0, 100 ether); // governance (index 1)
         vm.prank(alice);
-        stakeEng.stake(postId, 0, 200 ether);  // alice (index 2)
+        stakeEng.stake(postId, 0, 200 ether); // alice (index 2)
         vm.prank(bob);
-        stakeEng.stake(postId, 0, 300 ether);  // bob (index 3)
+        stakeEng.stake(postId, 0, 300 ether); // bob (index 3)
 
         // Record amounts before
         uint256 selfBefore = stakeEng.getUserStake(address(this), postId, 0);

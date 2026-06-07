@@ -23,7 +23,9 @@ contract Authority {
     error ZeroAddress();
 
     constructor(address _owner) {
-        if (_owner == address(0)) revert ZeroAddress();
+        if (_owner == address(0)) {
+            revert ZeroAddress();
+        }
         owner = _owner;
 
         // Bootstrap privileges
@@ -35,7 +37,9 @@ contract Authority {
     }
 
     modifier onlyOwner() {
-        if (msg.sender != owner) revert NotOwner();
+        if (msg.sender != owner) {
+            revert NotOwner();
+        }
         _;
     }
 
@@ -45,14 +49,18 @@ contract Authority {
 
     /// @notice Propose a new owner. The new owner must call acceptOwner() to complete.
     function proposeOwner(address proposed) external onlyOwner {
-        if (proposed == address(0)) revert ZeroAddress();
+        if (proposed == address(0)) {
+            revert ZeroAddress();
+        }
         pendingOwner = proposed;
         emit PendingOwnerSet(proposed);
     }
 
     /// @notice Accept ownership. Only callable by the pending owner.
     function acceptOwner() external {
-        if (msg.sender != pendingOwner) revert NotPendingOwner();
+        if (msg.sender != pendingOwner) {
+            revert NotPendingOwner();
+        }
         address oldOwner = owner;
         owner = msg.sender;
         pendingOwner = address(0);

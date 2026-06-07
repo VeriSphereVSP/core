@@ -14,8 +14,7 @@ contract LinkGraphBoundsTest is Test {
         graph = LinkGraph(
             address(
                 new ERC1967Proxy(
-                    address(new LinkGraph(address(0))),
-                    abi.encodeCall(LinkGraph.initialize, (address(this)))
+                    address(new LinkGraph(address(0))), abi.encodeCall(LinkGraph.initialize, (address(this)))
                 )
             )
         );
@@ -47,13 +46,7 @@ contract LinkGraphBoundsTest is Test {
             graph.addEdge(1, 2 + i, 100000 + i, false);
         }
         // The 1001st push must revert with OutgoingLinkLimitExceeded.
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                LinkGraph.OutgoingLinkLimitExceeded.selector,
-                uint256(1),
-                uint256(1000)
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(LinkGraph.OutgoingLinkLimitExceeded.selector, uint256(1), uint256(1000)));
         graph.addEdge(1, 99999, 999999, false);
 
         // Confirm storage state was NOT mutated by the failed attempt.
@@ -79,13 +72,7 @@ contract LinkGraphBoundsTest is Test {
         // revert. Note: we use a `from` (99999) not yet seen to keep the
         // outgoing side at length 1 — well below the outgoing cap — so it's
         // unambiguously the incoming cap that fires.
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                LinkGraph.IncomingLinkLimitExceeded.selector,
-                uint256(1),
-                uint256(1000)
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(LinkGraph.IncomingLinkLimitExceeded.selector, uint256(1), uint256(1000)));
         graph.addEdge(99999, 1, 999999, false);
 
         // Confirm storage state was NOT mutated.
@@ -101,13 +88,7 @@ contract LinkGraphBoundsTest is Test {
         // Attempting a 1001st outgoing from 1 must revert.
         // The target claim (2000) has 0 incoming. After revert, it must still
         // have 0 incoming (atomic check before any .push() per design).
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                LinkGraph.OutgoingLinkLimitExceeded.selector,
-                uint256(1),
-                uint256(1000)
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(LinkGraph.OutgoingLinkLimitExceeded.selector, uint256(1), uint256(1000)));
         graph.addEdge(1, 2000, 999999, false);
 
         LinkGraph.IncomingEdge[] memory edges = graph.getIncoming(2000);

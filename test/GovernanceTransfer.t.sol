@@ -22,10 +22,10 @@ contract GovernanceTransferTest is Test {
     StakeEngine engine;
     MockProtocolPolicy policy;
 
-    address gov     = address(this);          // initial governance (deploy-time)
-    address newGov  = address(0xC0FFEE);      // intended next governance (e.g. timelock)
+    address gov = address(this); // initial governance (deploy-time)
+    address newGov = address(0xC0FFEE); // intended next governance (e.g. timelock)
     address attacker = address(0xBAD);
-    address typoAddr = address(0xDEAD);       // wrong-but-valid address used for typo test
+    address typoAddr = address(0xDEAD); // wrong-but-valid address used for typo test
 
     // Mirror the GovernedUpgradeable events so we can assert on them.
     event GovernanceSet(address indexed governance);
@@ -236,7 +236,7 @@ contract GovernanceTransferTest is Test {
     // real-world deploy story.
     // ─────────────────────────────────────────────────────────────
     function test_TimelockStyleHandoffSimulation() public {
-        address deployer = gov;            // current governance
+        address deployer = gov; // current governance
         address timelock = address(0x71E10C); // simulated timelock contract (any address works for this test)
 
         // Deployer proposes timelock as new governance.

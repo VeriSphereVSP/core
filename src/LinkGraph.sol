@@ -12,21 +12,12 @@ import "./governance/GovernedUpgradeable.sol";
 contract LinkGraph is GovernedUpgradeable {
     error NotRegistry();
     error SelfLoop();
-    error DuplicateEdge(
-        uint256 fromClaimPostId,
-        uint256 toClaimPostId,
-        bool isChallenge
-    );
+    error DuplicateEdge(uint256 fromClaimPostId, uint256 toClaimPostId, bool isChallenge);
     error OutgoingLinkLimitExceeded(uint256 fromClaimPostId, uint256 currentCount); // bundle05_c
-    error IncomingLinkLimitExceeded(uint256 toClaimPostId, uint256 currentCount);   // bundle05_c
+    error IncomingLinkLimitExceeded(uint256 toClaimPostId, uint256 currentCount); // bundle05_c
 
     event RegistrySet(address indexed registry);
-    event EdgeAdded(
-        uint256 indexed from,
-        uint256 indexed to,
-        uint256 indexed linkPostId,
-        bool isChallenge
-    );
+    event EdgeAdded(uint256 indexed from, uint256 indexed to, uint256 indexed linkPostId, bool isChallenge);
 
     struct Edge {
         uint256 toClaimPostId;
@@ -56,39 +47,40 @@ contract LinkGraph is GovernedUpgradeable {
     mapping(bytes32 => bool) private edgeExists;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor(
-        address trustedForwarder_
-    ) GovernedUpgradeable(trustedForwarder_) {}
+    constructor(address trustedForwarder_) GovernedUpgradeable(trustedForwarder_) {}
 
     function initialize(address governance_) external initializer {
         __GovernedUpgradeable_init(governance_);
     }
 
     modifier onlyRegistry() {
-        if (msg.sender != registry) revert NotRegistry();
+        if (msg.sender != registry) {
+            revert NotRegistry();
+        }
         _;
     }
 
     /// @notice Set or update the PostRegistry address. Governance-only.
     function setRegistry(address registry_) external onlyGovernance {
-        if (registry_ == address(0)) revert ZeroAddress();
+        if (registry_ == address(0)) {
+            revert ZeroAddress();
+        }
         registry = registry_;
         emit RegistrySet(registry_);
     }
 
-    function addEdge(
-        uint256 fromClaimPostId,
-        uint256 toClaimPostId,
-        uint256 linkPostId,
-        bool isChallenge
-    ) external onlyRegistry {
-        if (fromClaimPostId == toClaimPostId) revert SelfLoop();
+    function addEdge(uint256 fromClaimPostId, uint256 toClaimPostId, uint256 linkPostId, bool isChallenge)
+        external
+        onlyRegistry
+    {
+        if (fromClaimPostId == toClaimPostId) {
+            revert SelfLoop();
+        }
 
-        bytes32 edgeKey = keccak256(
-            abi.encodePacked(fromClaimPostId, toClaimPostId, isChallenge)
-        );
-        if (edgeExists[edgeKey])
+        bytes32 edgeKey = keccak256(abi.encodePacked(fromClaimPostId, toClaimPostId, isChallenge));
+        if (edgeExists[edgeKey]) {
             revert DuplicateEdge(fromClaimPostId, toClaimPostId, isChallenge);
+        }
 
         edgeExists[edgeKey] = true;
 
@@ -107,51 +99,31 @@ contract LinkGraph is GovernedUpgradeable {
         }
 
         outgoing[fromClaimPostId].push(
-            Edge({
-                toClaimPostId: toClaimPostId,
-                linkPostId: linkPostId,
-                isChallenge: isChallenge
-            })
+            Edge({toClaimPostId: toClaimPostId, linkPostId: linkPostId, isChallenge: isChallenge})
         );
 
         incoming[toClaimPostId].push(
-            IncomingEdge({
-                fromClaimPostId: fromClaimPostId,
-                linkPostId: linkPostId,
-                isChallenge: isChallenge
-            })
+            IncomingEdge({fromClaimPostId: fromClaimPostId, linkPostId: linkPostId, isChallenge: isChallenge})
         );
 
         emit EdgeAdded(fromClaimPostId, toClaimPostId, linkPostId, isChallenge);
     }
 
-    function getOutgoing(
-        uint256 claimPostId
-    ) external view returns (Edge[] memory) {
+    function getOutgoing(uint256 claimPostId) external view returns (Edge[] memory) {
         return outgoing[claimPostId];
     }
 
-    function getIncoming(
-        uint256 claimPostId
-    ) external view returns (IncomingEdge[] memory) {
+    function getIncoming(uint256 claimPostId) external view returns (IncomingEdge[] memory) {
         return incoming[claimPostId];
     }
 
     /// @notice Check if a specific edge already exists.
-    function hasEdge(
-        uint256 fromClaimPostId,
-        uint256 toClaimPostId,
-        bool isChallenge
-    ) external view returns (bool) {
-        bytes32 edgeKey = keccak256(
-            abi.encodePacked(fromClaimPostId, toClaimPostId, isChallenge)
-        );
+    function hasEdge(uint256 fromClaimPostId, uint256 toClaimPostId, bool isChallenge) external view returns (bool) {
+        bytes32 edgeKey = keccak256(abi.encodePacked(fromClaimPostId, toClaimPostId, isChallenge));
         return edgeExists[edgeKey];
     }
 
-    function getOutgoingClaims(
-        uint256 claimPostId
-    ) external view returns (uint256[] memory) {
+    function getOutgoingClaims(uint256 claimPostId) external view returns (uint256[] memory) {
         Edge[] storage edges = outgoing[claimPostId];
         uint256[] memory tos = new uint256[](edges.length);
         for (uint256 i = 0; i < edges.length; i++) {
