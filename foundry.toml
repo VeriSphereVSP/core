@@ -34,3 +34,8 @@ avalanche = { key = "", chain = 43114 }
 
 [fmt]
 single_line_statement_blocks = "multi"
+
+[profile.ci]
+# Inherits [profile.default] (incl. extra_output=storageLayout) and the
+# standalone [fmt] (== [profile.default.fmt]). Declared so FOUNDRY_PROFILE=ci
+# in CI selects a real profile instead of falling back with a warning.
