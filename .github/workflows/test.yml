@@ -36,5 +36,10 @@ jobs:
       - name: Storage layout regression gate
         run: bash script/storage-layout/check.sh --check
 
+      - name: Slither static-analysis gate
+        run: |
+          pip install slither-analyzer==0.11.5
+          bash script/slither/slither-gate.sh --check
+
       - name: Run Forge tests
         run: forge test -vvv
