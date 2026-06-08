@@ -18,7 +18,7 @@
 set -uo pipefail
 
 VERISPHERE="${VERISPHERE:-$HOME/verisphere}"
-CORE="${CORE:-$VERISPHERE/core}"
+CORE="${CORE:-$(cd "$(dirname "$0")/../.." && pwd)}"
 TOOLS="${TOOLS:-$VERISPHERE/tools}"
 VENV="${SLITHER_VENV:-$TOOLS/.slither-venv}"
 
