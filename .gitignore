@@ -56,3 +56,4 @@ out/
 # slither gate: track baseline, ignore throwaway report/log
 !script/slither/slither-baseline.json
 script/slither/slither-run.log
+script/slither/__pycache__/
