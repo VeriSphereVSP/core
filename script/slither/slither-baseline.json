@@ -1,0 +1,830 @@
+{
+  "by_impact": {
+    "High": 0,
+    "Informational": 41,
+    "Low": 33,
+    "Medium": 26,
+    "Optimization": 2
+  },
+  "findings": [
+    {
+      "check": "dead-code",
+      "confidence": "Medium",
+      "element": "_msgData",
+      "fingerprint": "03ec73d4352dd917",
+      "impact": "Informational",
+      "location": "src/VSPToken.sol:180"
+    },
+    {
+      "check": "unused-state",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "09c65221f17ac525",
+      "impact": "Informational",
+      "location": "src/ProtocolViews.sol:106"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "0bcb495258c8f03a",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "0bcb495258c8f03a",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "0bcb495258c8f03a",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "0bcb495258c8f03a",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "0bcb495258c8f03a",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "0bcb495258c8f03a",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "0bcb495258c8f03a",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "0bcb495258c8f03a",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "0bcb495258c8f03a",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "divide-before-multiply",
+      "confidence": "Medium",
+      "element": "_projectTotals",
+      "fingerprint": "1176ec9c82beef04",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:781"
+    },
+    {
+      "check": "divide-before-multiply",
+      "confidence": "Medium",
+      "element": "_computeEdgeContribution",
+      "fingerprint": "1206027770ad6630",
+      "impact": "Medium",
+      "location": "src/ScoreEngine.sol:231"
+    },
+    {
+      "check": "incorrect-equality",
+      "confidence": "High",
+      "element": "_projectLotValue",
+      "fingerprint": "160f822661d43b1c",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:846"
+    },
+    {
+      "check": "reentrancy-events",
+      "confidence": "Medium",
+      "element": "_chargeFee",
+      "fingerprint": "1da534071601ff15",
+      "impact": "Low",
+      "location": "src/PostRegistry.sol:341"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "_projectLotValue",
+      "fingerprint": "232dac1e92878286",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:846"
+    },
+    {
+      "check": "reentrancy-events",
+      "confidence": "Medium",
+      "element": "createClaim",
+      "fingerprint": "28d689470fc42fac",
+      "impact": "Low",
+      "location": "src/PostRegistry.sol:164"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "_maybeSnapshot",
+      "fingerprint": "295a69aafc4220d2",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:563"
+    },
+    {
+      "check": "calls-loop",
+      "confidence": "Medium",
+      "element": "_sumOutgoingLinkStake",
+      "fingerprint": "2abbe92ae2e04029",
+      "impact": "Low",
+      "location": "src/ScoreEngine.sol:378"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "SIDE_SUPPORT",
+      "fingerprint": "2bb97885cdd7f387",
+      "impact": "Informational",
+      "location": "src/interfaces/IStakeEngine.sol:5"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "stake",
+      "fingerprint": "2bc8456d5b7492a2",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:406"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "stake",
+      "fingerprint": "2bc8456d5b7492a2",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:406"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "STAKE_ENGINE_ADDRESS",
+      "fingerprint": "2ed1638a1ff9886c",
+      "impact": "Informational",
+      "location": "src/VSPToken.sol:61"
+    },
+    {
+      "check": "dead-code",
+      "confidence": "Medium",
+      "element": "_msgData",
+      "fingerprint": "35aff08eb8b0c63d",
+      "impact": "Informational",
+      "location": "src/governance/GovernedUpgradeable.sol:81"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "maxAllowedSupply",
+      "fingerprint": "386e18d05df77b17",
+      "impact": "Low",
+      "location": "src/VSPToken.sol:132"
+    },
+    {
+      "check": "costly-loop",
+      "confidence": "Medium",
+      "element": "_applySMaxDecay",
+      "fingerprint": "38b7a222c16b58ec",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:965"
+    },
+    {
+      "check": "costly-loop",
+      "confidence": "Medium",
+      "element": "_applySMaxDecay",
+      "fingerprint": "38b7a222c16b58ec",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:965"
+    },
+    {
+      "check": "costly-loop",
+      "confidence": "Medium",
+      "element": "_applySMaxDecay",
+      "fingerprint": "38b7a222c16b58ec",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:965"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "_applyEpoch",
+      "fingerprint": "3c84c785fc3a4a9e",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:695"
+    },
+    {
+      "check": "divide-before-multiply",
+      "confidence": "Medium",
+      "element": "_forceSnapshot",
+      "fingerprint": "409b648f0a57d48f",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:579"
+    },
+    {
+      "check": "missing-zero-check",
+      "confidence": "Medium",
+      "element": "stakeEngine_",
+      "fingerprint": "46931dfad814511e",
+      "impact": "Low",
+      "location": "src/VSPToken.sol:92"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "withdraw",
+      "fingerprint": "47ec8394947a0821",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:438"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "__GovernedUpgradeable_init",
+      "fingerprint": "48c6f3ac9c8c5fa9",
+      "impact": "Informational",
+      "location": "src/governance/GovernedUpgradeable.sol:34"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "_forceSnapshot",
+      "fingerprint": "4c1f738ab81c6ecc",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:579"
+    },
+    {
+      "check": "reentrancy-benign",
+      "confidence": "Medium",
+      "element": "withdraw",
+      "fingerprint": "54b347d868f44e5d",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:438"
+    },
+    {
+      "check": "reentrancy-benign",
+      "confidence": "Medium",
+      "element": "_forceSnapshot",
+      "fingerprint": "558c6d1b47de3929",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:579"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "_applySMaxDecay",
+      "fingerprint": "55a3a4425ec9ad04",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:965"
+    },
+    {
+      "check": "unused-state",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "561fa6c2a2f27814",
+      "impact": "Informational",
+      "location": "src/VSPToken.sol:193"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "getPostTotals",
+      "fingerprint": "5781a6a7a7e41f03",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:325"
+    },
+    {
+      "check": "constable-states",
+      "confidence": "High",
+      "element": "_unused_visitToken",
+      "fingerprint": "585874ebcbbfb927",
+      "impact": "Optimization",
+      "location": "src/LinkGraph.sol:41"
+    },
+    {
+      "check": "reentrancy-benign",
+      "confidence": "Medium",
+      "element": "createClaim",
+      "fingerprint": "5eb0826aa11aa721",
+      "impact": "Low",
+      "location": "src/PostRegistry.sol:164"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "6099617d8a9f7597",
+      "impact": "Informational",
+      "location": "src/LinkGraph.sol:135"
+    },
+    {
+      "check": "unused-state",
+      "confidence": "High",
+      "element": "_unused_visitToken",
+      "fingerprint": "625e700a1e09575a",
+      "impact": "Informational",
+      "location": "src/LinkGraph.sol:41"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "__reservedSlot1_unused",
+      "fingerprint": "63a260b2a0e464d5",
+      "impact": "Informational",
+      "location": "src/ScoreEngine.sol:36"
+    },
+    {
+      "check": "reentrancy-benign",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "63ab651bac26de93",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-benign",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "63ab651bac26de93",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "reentrancy-benign",
+      "confidence": "Medium",
+      "element": "setStake",
+      "fingerprint": "63ab651bac26de93",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "_projectSMaxDecay",
+      "fingerprint": "66754b062ff1f03d",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:1017"
+    },
+    {
+      "check": "constable-states",
+      "confidence": "High",
+      "element": "__reservedSlot1_unused",
+      "fingerprint": "669cb2b14b34ff72",
+      "impact": "Optimization",
+      "location": "src/ScoreEngine.sol:36"
+    },
+    {
+      "check": "reentrancy-events",
+      "confidence": "Medium",
+      "element": "createLink",
+      "fingerprint": "76e3214f3fe65575",
+      "impact": "Low",
+      "location": "src/PostRegistry.sol:203"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "INCEPTION_SUPPLY",
+      "fingerprint": "77da492c52cc5a3c",
+      "impact": "Informational",
+      "location": "src/VSPToken.sol:51"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "7d2b7acea2f7071e",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:1057"
+    },
+    {
+      "check": "missing-zero-check",
+      "confidence": "Medium",
+      "element": "newGuardian",
+      "fingerprint": "7d61eb90ea93be95",
+      "impact": "Low",
+      "location": "src/PostRegistry.sol:156"
+    },
+    {
+      "check": "incorrect-equality",
+      "confidence": "High",
+      "element": "_projectSideTotal",
+      "fingerprint": "81bb502f4ce4f0a8",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:814"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "842162b5e84eabbe",
+      "impact": "Informational",
+      "location": "src/ScoreEngine.sol:445"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "INCEPTION_TIMESTAMP",
+      "fingerprint": "870c5f0a43dc6003",
+      "impact": "Informational",
+      "location": "src/VSPToken.sol:48"
+    },
+    {
+      "check": "reentrancy-benign",
+      "confidence": "Medium",
+      "element": "createLink",
+      "fingerprint": "8b81582945b7bb61",
+      "impact": "Low",
+      "location": "src/PostRegistry.sol:203"
+    },
+    {
+      "check": "costly-loop",
+      "confidence": "Medium",
+      "element": "_updateSMax",
+      "fingerprint": "8eef076714f26a9c",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:909"
+    },
+    {
+      "check": "costly-loop",
+      "confidence": "Medium",
+      "element": "_updateSMax",
+      "fingerprint": "8eef076714f26a9c",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:909"
+    },
+    {
+      "check": "costly-loop",
+      "confidence": "Medium",
+      "element": "_updateSMax",
+      "fingerprint": "8eef076714f26a9c",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:909"
+    },
+    {
+      "check": "costly-loop",
+      "confidence": "Medium",
+      "element": "_updateSMax",
+      "fingerprint": "8eef076714f26a9c",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:909"
+    },
+    {
+      "check": "costly-loop",
+      "confidence": "Medium",
+      "element": "_updateSMax",
+      "fingerprint": "8eef076714f26a9c",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:909"
+    },
+    {
+      "check": "costly-loop",
+      "confidence": "Medium",
+      "element": "_updateSMax",
+      "fingerprint": "8eef076714f26a9c",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:909"
+    },
+    {
+      "check": "calls-loop",
+      "confidence": "Medium",
+      "element": "baseVSRay",
+      "fingerprint": "90d80adac0444654",
+      "impact": "Low",
+      "location": "src/ScoreEngine.sol:107"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "GROWTH_BASE_PER_YEAR",
+      "fingerprint": "91f2cc6f0f7c2eb2",
+      "impact": "Informational",
+      "location": "src/VSPToken.sol:55"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "createLink",
+      "fingerprint": "956d516f24679d7a",
+      "impact": "Medium",
+      "location": "src/PostRegistry.sol:203"
+    },
+    {
+      "check": "calls-loop",
+      "confidence": "Medium",
+      "element": "_totalStake",
+      "fingerprint": "9876bff9ff28860a",
+      "impact": "Low",
+      "location": "src/ScoreEngine.sol:356"
+    },
+    {
+      "check": "unused-state",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "989231729e0f9bd4",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:1057"
+    },
+    {
+      "check": "divide-before-multiply",
+      "confidence": "Medium",
+      "element": "_applyEpoch",
+      "fingerprint": "98ff1344e4051ab1",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:695"
+    },
+    {
+      "check": "missing-zero-check",
+      "confidence": "Medium",
+      "element": "newGovernance",
+      "fingerprint": "9964bfd3c6da26f1",
+      "impact": "Low",
+      "location": "src/governance/GovernedUpgradeable.sol:56"
+    },
+    {
+      "check": "missing-zero-check",
+      "confidence": "Medium",
+      "element": "guardian_",
+      "fingerprint": "9b2ea80b89bd3dc8",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:248"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "ERC20_TOKEN",
+      "fingerprint": "a4cbf01868eacfce",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:53"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "_forceSnapshot",
+      "fingerprint": "a8b99e3f7d4cd22a",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:579"
+    },
+    {
+      "check": "unused-state",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "af15571b0bcabf08",
+      "impact": "Informational",
+      "location": "src/PostRegistry.sol:360"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "b3824838aa2866a7",
+      "impact": "Informational",
+      "location": "src/PostRegistry.sol:360"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "getUserLotInfo",
+      "fingerprint": "b6ca2733f200d8fe",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:358"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "getUserStake",
+      "fingerprint": "b83ace379b416a73",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:337"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "SIDE_CHALLENGE",
+      "fingerprint": "b88697b729a64383",
+      "impact": "Informational",
+      "location": "src/interfaces/IStakeEngine.sol:6"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "_unused_visited",
+      "fingerprint": "bef779cca245f42a",
+      "impact": "Informational",
+      "location": "src/LinkGraph.sol:40"
+    },
+    {
+      "check": "missing-zero-check",
+      "confidence": "Medium",
+      "element": "newGuardian",
+      "fingerprint": "c0af0203d581f6e1",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:276"
+    },
+    {
+      "check": "unused-state",
+      "confidence": "High",
+      "element": "_unused_visited",
+      "fingerprint": "c1e99654f7a57e42",
+      "impact": "Informational",
+      "location": "src/LinkGraph.sol:40"
+    },
+    {
+      "check": "reentrancy-no-eth",
+      "confidence": "Medium",
+      "element": "createClaim",
+      "fingerprint": "c356649d7e743b26",
+      "impact": "Medium",
+      "location": "src/PostRegistry.sol:164"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "c864b2a852db644d",
+      "impact": "Informational",
+      "location": "src/ProtocolViews.sol:106"
+    },
+    {
+      "check": "incorrect-equality",
+      "confidence": "High",
+      "element": "_applyEpoch",
+      "fingerprint": "d22932c07ff62734",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:695"
+    },
+    {
+      "check": "incorrect-equality",
+      "confidence": "High",
+      "element": "_applyEpoch",
+      "fingerprint": "d22932c07ff62734",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:695"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "d2ccfcfaa958e05f",
+      "impact": "Informational",
+      "location": "src/governance/GovernedUpgradeable.sol:89"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "_unused_visitToken",
+      "fingerprint": "d30b1cd7a0231fa1",
+      "impact": "Informational",
+      "location": "src/LinkGraph.sol:41"
+    },
+    {
+      "check": "timestamp",
+      "confidence": "Medium",
+      "element": "_projectSideTotal",
+      "fingerprint": "d3d7859eec6e6003",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:814"
+    },
+    {
+      "check": "unused-state",
+      "confidence": "High",
+      "element": "__reservedSlot1_unused",
+      "fingerprint": "d9bd58a9089fff16",
+      "impact": "Informational",
+      "location": "src/ScoreEngine.sol:36"
+    },
+    {
+      "check": "cyclomatic-complexity",
+      "confidence": "High",
+      "element": "setStake",
+      "fingerprint": "dc1768351561c2fc",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:491"
+    },
+    {
+      "check": "unused-state",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "dceb4e4c7ef6d52e",
+      "impact": "Informational",
+      "location": "src/LinkGraph.sol:135"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "VSP_TOKEN",
+      "fingerprint": "e4a2c54c93cad2ce",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:54"
+    },
+    {
+      "check": "cyclomatic-complexity",
+      "confidence": "High",
+      "element": "_updateSMax",
+      "fingerprint": "e8f294563e30e6d4",
+      "impact": "Informational",
+      "location": "src/StakeEngine.sol:909"
+    },
+    {
+      "check": "reentrancy-benign",
+      "confidence": "Medium",
+      "element": "stake",
+      "fingerprint": "e9daed0a65e92ae4",
+      "impact": "Low",
+      "location": "src/StakeEngine.sol:406"
+    },
+    {
+      "check": "divide-before-multiply",
+      "confidence": "Medium",
+      "element": "_projectLotValue",
+      "fingerprint": "ea7d30779fe16e19",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:846"
+    },
+    {
+      "check": "divide-before-multiply",
+      "confidence": "Medium",
+      "element": "_projectLotValue",
+      "fingerprint": "ea7d30779fe16e19",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:846"
+    },
+    {
+      "check": "unused-state",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "f0771cd3f859467b",
+      "impact": "Informational",
+      "location": "src/ScoreEngine.sol:445"
+    },
+    {
+      "check": "calls-loop",
+      "confidence": "Medium",
+      "element": "_computeEdgeContribution",
+      "fingerprint": "f368c5e72b16dab0",
+      "impact": "Low",
+      "location": "src/ScoreEngine.sol:231"
+    },
+    {
+      "check": "calls-loop",
+      "confidence": "Medium",
+      "element": "_computeEdgeContribution",
+      "fingerprint": "f368c5e72b16dab0",
+      "impact": "Low",
+      "location": "src/ScoreEngine.sol:231"
+    },
+    {
+      "check": "divide-before-multiply",
+      "confidence": "Medium",
+      "element": "_projectSideTotal",
+      "fingerprint": "fa189611f576492b",
+      "impact": "Medium",
+      "location": "src/StakeEngine.sol:814"
+    },
+    {
+      "check": "missing-zero-check",
+      "confidence": "Medium",
+      "element": "guardian_",
+      "fingerprint": "fce7e81d60c787ed",
+      "impact": "Low",
+      "location": "src/PostRegistry.sol:129"
+    },
+    {
+      "check": "naming-convention",
+      "confidence": "High",
+      "element": "__gap",
+      "fingerprint": "fdc1fd528329dced",
+      "impact": "Informational",
+      "location": "src/VSPToken.sol:193"
+    }
+  ],
+  "generated_utc": "2026-06-08T06:41:23.325253+00:00",
+  "scope": "src (excludes lib,test,script)",
+  "total": 102
+}

@@ -52,3 +52,7 @@ out/
 # patch_storage_layout_gate: keep storage-layout regression baselines tracked
 # (the global *.json rule above would otherwise ignore them).
 !script/storage-layout/baselines/*.json
+
+# slither gate: track baseline, ignore throwaway report/log
+!script/slither/slither-baseline.json
+script/slither/slither-run.log
