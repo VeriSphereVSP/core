@@ -614,6 +614,9 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 epochsElapsed = currentEpoch - lastEpoch;
         uint256 vRay = (absVS * RAY) / T;
         uint256 participationRay = (T * RAY) / sMax;
+        if (participationRay > RAY) {
+            participationRay = RAY;
+        }
 
         uint256 rMin = (protocolPolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
         uint256 rMax = (protocolPolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
@@ -804,6 +807,9 @@ contract StakeEngine is GovernedUpgradeable {
         }
         uint256 vRay = (absVS * RAY) / T;
         uint256 participationRay = (T * RAY) / projSMax;
+        if (participationRay > RAY) {
+            participationRay = RAY;
+        }
         uint256 rMin = (protocolPolicy.stakeIntRateMinRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
         uint256 rMax = (protocolPolicy.stakeIntRateMaxRay() * EPOCH_LENGTH * epochsElapsed) / YEAR_LENGTH;
         uint256 rBase = rMin + ((rMax - rMin) * vRay * participationRay) / (RAY * RAY);
