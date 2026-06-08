@@ -56,7 +56,7 @@ contract Deploy is Script {
         ProtocolPolicy protocolPolicy = new ProtocolPolicy(
             address(timelock),
             0, // rateMin: 0% APR floor
-            693805319167998976,           // rateMax: 100% max APY (1->2 VSP) daily-compounded ~ln2
+            693805319167998976, // rateMax: 100% max APY (1->2 VSP) daily-compounded ~ln2
             1e18, // postingFee: 1 VSP (within [1e15, 100e18])
             1e18 // minTotalStake: 1 VSP (within [0, 10000e18])
         );
