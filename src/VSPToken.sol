@@ -11,7 +11,7 @@ import "./interfaces/IVSPToken.sol";
 // patch_bundle10_5_part2a_timecap: time-based supply cap math (UD60x18 fixed point)
 import {UD60x18, ud} from "@prb/math/src/UD60x18.sol";
 
-/// @title VSPToken — VeriSphere ERC-20 with permit, ERC-2771, and UUPS upgradeability
+/// @title VSPToken — Verisphere ERC-20 with permit, ERC-2771, and UUPS upgradeability
 contract VSPToken is
     Initializable,
     ERC20Upgradeable,
@@ -99,8 +99,8 @@ contract VSPToken is
     }
 
     function initialize(address authority_) external initializer {
-        __ERC20_init("VeriSphere", "VSP");
-        __ERC20Permit_init("VeriSphere");
+        __ERC20_init("Verisphere", "VSP");
+        __ERC20Permit_init("Verisphere");
         authority = Authority(authority_);
     }
 
