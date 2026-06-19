@@ -38,17 +38,34 @@ contract Deploy is Script {
         // Use address(0) if no forwarder is needed (direct wallet interaction only).
         address forwarder = vm.envOr("FORWARDER_ADDRESS", address(0));
 
-        // Deploy TimelockController for policy contracts (and Authority in prod)
+        // Deploy TimelockController for policy contracts (and Authority in prod).
+        //
+        // PROD: proposer/executor = the Ops Safe (required SAFE_ADDRESS), admin = 0.
+        //   The Safe is the ONLY actor that can schedule or execute timelock ops, and
+        //   the timelock is self-administered (admin=0) — its own config can only be
+        //   changed via the Safe→schedule→delay→execute path. No deployer backdoor,
+        //   no "renounce later" straggler. Losing the Safe (2-of-3) bricks governance
+        //   by design; that risk is mitigated by signer seed backups, not by an admin.
+        // DEV: proposer/executor/admin = deployer, minDelay 0, for fast iteration.
+        //
+        // NOTE: this deploy performs NO governance handoff. Every contract is left
+        //   deployer-owned. The handoff (deployer proposes -> Safe accepts via the
+        //   timelock) is a separate, gated, Safe-driven step: tools/vsp-governance-handoff.sh.
+        address timelockController = deployer; // dev: deployer is proposer/executor/admin
+        if (isProduction) {
+            timelockController = vm.envAddress("SAFE_ADDRESS"); // reverts if unset in prod
+            require(timelockController != address(0), "Deploy: SAFE_ADDRESS required when PRODUCTION=true");
+        }
         address[] memory proposers = new address[](1);
-        proposers[0] = deployer;
+        proposers[0] = timelockController;
         address[] memory executors = new address[](1);
-        executors[0] = deployer;
+        executors[0] = timelockController;
 
         TimelockController timelock = new TimelockController(
             isProduction ? 2 days : 0, // minDelay: 2 days in prod, 0 in dev
-            proposers,
-            executors,
-            deployer // admin — can be renounced later in prod
+            proposers, // prod: [Safe]; dev: [deployer]
+            executors, // prod: [Safe]; dev: [deployer]
+            isProduction ? address(0) : deployer // prod: self-administered (no admin); dev: deployer
         );
 
         // Bundled policy: stake rates + posting fee + claim activity threshold.
@@ -150,19 +167,21 @@ contract Deploy is Script {
         vm.label(address(score), "ScoreEngine");
         vm.label(address(viewsProxy), "ProtocolViews");
 
-        // ── Production: initiate ownership transfer to timelock ──
+        // ── Production: NO handoff here (deliberate) ──
+        // Deploy leaves ALL contracts deployer-owned. Governance handoff to the
+        // timelock is a SEPARATE, gated, Safe-driven step (tools/vsp-governance-handoff.sh):
+        // deployer proposes on each consumer + Authority; the Ops Safe then schedules
+        // and executes the accept* batch through this timelock. The Forwarder goes to
+        // the Safe directly (fast rescue). Keeping deploy and handoff separate makes the
+        // single most dangerous step reviewable, gateable, and rehearsable on its own.
         if (isProduction) {
-            // Propose timelock as new Authority owner.
-            // The timelock must call authority.acceptOwner() to complete.
-            authority.proposeOwner(address(timelock));
-
             console.log("");
-            console.log("PRODUCTION MODE: Ownership transfer initiated.");
-            console.log("TimelockController:", address(timelock));
-            console.log("Authority pending owner:", address(timelock));
+            console.log("PRODUCTION MODE: deployed. ALL contracts are deployer-owned.");
+            console.log("TimelockController (proposer/executor = Ops Safe, admin = 0):", address(timelock));
+            console.log("Ops Safe:", timelockController);
             console.log("");
-            console.log("NEXT STEP: Schedule and execute authority.acceptOwner()");
-            console.log("via the TimelockController to complete ownership transfer.");
+            console.log("NO governance handoff was performed by this deploy (by design).");
+            console.log("NEXT: run tools/vsp-preceremony-probe.sh, then tools/vsp-governance-handoff.sh.");
         }
 
         vm.stopBroadcast();
