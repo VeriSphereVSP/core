@@ -61,8 +61,16 @@ contract Deploy is Script {
         address[] memory executors = new address[](1);
         executors[0] = timelockController;
 
+        // Prod Timelock minDelay: default 2 days, overridable via TIMELOCK_MIN_DELAY_SECONDS
+        // (e.g. 120 for a fast Fuji rehearsal). HARD FLOOR on mainnet: chain 43114 can never
+        // go below 2 days regardless of the override — a rehearsal-speed delay must never
+        // reach production. Dev (non-prod) is always 0 for fast iteration.
+        uint256 prodDelay = vm.envOr("TIMELOCK_MIN_DELAY_SECONDS", uint256(2 days));
+        require(block.chainid != 43114 || prodDelay >= 2 days, "Deploy: mainnet Timelock minDelay floor is 2 days");
+        uint256 minDelay = isProduction ? prodDelay : 0;
+
         TimelockController timelock = new TimelockController(
-            isProduction ? 2 days : 0, // minDelay: 2 days in prod, 0 in dev
+            minDelay, // prod: TIMELOCK_MIN_DELAY_SECONDS (default 2 days, mainnet floor 2 days); dev: 0
             proposers, // prod: [Safe]; dev: [deployer]
             executors, // prod: [Safe]; dev: [deployer]
             isProduction ? address(0) : deployer // prod: self-administered (no admin); dev: deployer
