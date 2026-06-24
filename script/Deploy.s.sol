@@ -86,6 +86,13 @@ contract Deploy is Script {
             1e18 // minTotalStake: 1 VSP (within [0, 10000e18])
         );
 
+        // patch_stakeengine_exempt_precompute: single-pass wiring of VSPToken's cap-exemption
+        // target. The StakeEngine proxy is the 4th CREATE from here (VSPToken
+        // impl +0, token proxy +1, StakeEngine impl +2, StakeEngine proxy +3);
+        // the TimelockController is created in both prod and dev branches, so
+        // this offset is constant. The require() after the StakeEngine deploy
+        // fails loud if the offset ever drifts (CREATE inserted/reordered above).
+        address predictedStakeProxy = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 3);
         VSPToken tokenImpl = new VSPToken(
             // patch_bundle10_5_part1_fixup_doc_sync_sol: DO NOT CHANGE the address(0) below.
             // VSPToken MUST NOT trust any ERC-2771 forwarder. The Forwarder
@@ -102,7 +109,7 @@ contract Deploy is Script {
             vm.envOr("VSP_INCEPTION_TIMESTAMP", uint256(1778544000)),
             vm.envOr("VSP_INCEPTION_SUPPLY", uint256(1000 * 1e18)),
             vm.envOr("VSP_GROWTH_BASE_PER_YEAR", uint256(10 * 1e18)),
-            vm.envOr("VSP_STAKE_ENGINE_ADDRESS", address(0)) // patch_bundle10_5_part2a_stakeengine_exempt
+            predictedStakeProxy // patch_bundle10_5_part2a_stakeengine_exempt
         ); // patch_bundle10_5_part2a_timecap: 4-arg constructor
         ERC1967Proxy tokenProxy =
             new ERC1967Proxy(address(tokenImpl), abi.encodeCall(VSPToken.initialize, (address(authority))));
@@ -122,6 +129,12 @@ contract Deploy is Script {
             address(stakeImpl), abi.encodeCall(StakeEngine.initialize, (gov, address(token), address(protocolPolicy)))
         );
         StakeEngine stake = StakeEngine(address(stakeProxy));
+        // patch_stakeengine_exempt_precompute: fail loud if the nonce offset above ever drifts,
+        // rather than silently deploying VSPToken with a wrong exemption target.
+        require(
+            address(stake) == predictedStakeProxy,
+            "Deploy: StakeEngine proxy != precomputed VSPToken exemption target (nonce offset drift)"
+        );
 
         authority.setMinter(address(stake), true);
         authority.setBurner(address(stake), true);
