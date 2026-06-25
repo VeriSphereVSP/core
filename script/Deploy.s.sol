@@ -124,8 +124,18 @@ contract Deploy is Script {
         // forwarder, the deploy itself reverts here. See THREAT-MODEL §4.6 F11/G-47.
         require(token.trustedForwarder() == address(0), "Deploy: VSPToken must not trust any forwarder");
 
-        authority.setMinter(gov, true);
-        authority.setBurner(gov, true);
+        // patch_worker_minter: the treasury worker is the sole non-protocol minter/burner.
+        // It mints VSP into MM when liquidity is low and burns when MM is over-band
+        // (app/treasury_worker.py). Granted IN PLACE OF the deployer (dev and prod identical):
+        // no human EOA is ever a standing minter. StakeEngine keeps its own grant below for
+        // protocol gain-mints. This is a swap (2 CALLs -> 2 CALLs, same slot), so the nonce
+        // count the +5 StakeEngine-exemption precompute depends on is unchanged.
+        // NOTE: with the deployer un-granted, fundmm.sh / fund-prelaunch.sh (which mint via
+        // the deployer) no longer work; MM liquidity comes solely from the worker's mint cycle.
+        address worker = vm.envAddress("MM_TREASURY_WORKER_ADDRESS");
+        require(worker != address(0), "Deploy: MM_TREASURY_WORKER_ADDRESS required");
+        authority.setMinter(worker, true);
+        authority.setBurner(worker, true);
 
         // Implementation contracts take forwarder in constructor (OZ 5.5 immutable pattern)
         StakeEngine stakeImpl = new StakeEngine(forwarder);
@@ -208,6 +218,16 @@ contract Deploy is Script {
             console.log("NO governance handoff was performed by this deploy (by design).");
             console.log("NEXT: run tools/vsp-preceremony-probe.sh, then tools/vsp-governance-handoff.sh.");
         }
+
+        // patch_worker_minter_revoke: Authority's constructor auto-grants its owner (the
+        // deployer) mint+burn (Authority.sol:32-33). The deploy itself never mints/burns, and
+        // no human EOA should be a standing minter — so revoke the deployer here, at the end of
+        // setup. Leaves the minter set as exactly {StakeEngine (gain-mints), treasury worker
+        // (MM liquidity)}. Dev and prod identical. acceptOwner() does NOT re-grant, so the
+        // governance handoff stays clean. After the StakeEngine proxy, so the +5 exemption
+        // precompute is unaffected.
+        authority.setMinter(deployer, false);
+        authority.setBurner(deployer, false);
 
         vm.stopBroadcast();
 
