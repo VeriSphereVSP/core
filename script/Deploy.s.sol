@@ -87,12 +87,16 @@ contract Deploy is Script {
         );
 
         // patch_stakeengine_exempt_precompute: single-pass wiring of VSPToken's cap-exemption
-        // target. The StakeEngine proxy is the 4th CREATE from here (VSPToken
-        // impl +0, token proxy +1, StakeEngine impl +2, StakeEngine proxy +3);
-        // the TimelockController is created in both prod and dev branches, so
-        // this offset is constant. The require() after the StakeEngine deploy
-        // fails loud if the offset ever drifts (CREATE inserted/reordered above).
-        address predictedStakeProxy = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 3);
+        // target = the StakeEngine proxy, precomputed by nonce offset from this getNonce().
+        // patch_fix_nonce_offset_setminter (2026-06-24): offset is +5, not +3 — the original
+        // counted only CREATEs and missed two nonce-consuming CALLs, authority.setMinter(gov)
+        // and setBurner(gov), that sit between the token proxy and the StakeEngine deploy.
+        // Full nonce accounting from this getNonce():
+        //   +0 VSPToken impl (CREATE)     +1 token proxy (CREATE)
+        //   +2 setMinter(gov) (CALL)      +3 setBurner(gov) (CALL)
+        //   +4 StakeEngine impl (CREATE)  +5 StakeEngine proxy (CREATE)  <- exemption target
+        // The require() after the StakeEngine deploy still fails loud if this ever drifts.
+        address predictedStakeProxy = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 5);
         VSPToken tokenImpl = new VSPToken(
             // patch_bundle10_5_part1_fixup_doc_sync_sol: DO NOT CHANGE the address(0) below.
             // VSPToken MUST NOT trust any ERC-2771 forwarder. The Forwarder

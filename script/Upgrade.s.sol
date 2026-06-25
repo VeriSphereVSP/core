@@ -81,12 +81,22 @@ contract Upgrade is Script {
         }
 
         // ── VSPToken ─────────────────────────────────────────────
+        // patch_fix_upgrade_exempt_carryforward (2026-06-24): VSPToken cap-exemption is an
+        // immutable baked into each impl at construction; it must carry the StakeEngine that
+        // is ACTIVE after this upgrade. In-place: that is the existing stakeEngineProxy.
+        // FRESH: a new proxy is deployed further below, so its address is not known here —
+        // wiring the exemption for a fresh StakeEngine needs a reorder; fail loud rather than
+        // silently ship address(0) (the bug this replaces) or the wrong (old) proxy.
+        require(
+            !freshStakeEngine,
+            "Upgrade: FRESH_STAKE_ENGINE cannot wire VSPToken cap-exemption here; wire the new StakeEngine exemption explicitly"
+        );
         VSPToken newTokenImpl = new VSPToken(
             address(0), // forwarder: VSP uses no ERC-2771 (forwarder calls transferFrom directly)
             vm.envOr("VSP_INCEPTION_TIMESTAMP", uint256(1778544000)),
             vm.envOr("VSP_INCEPTION_SUPPLY", uint256(1000 * 1e18)),
             vm.envOr("VSP_GROWTH_BASE_PER_YEAR", uint256(10 * 1e18)),
-            vm.envOr("VSP_STAKE_ENGINE_ADDRESS", address(0)) // patch_bundle10_5_part2a_stakeengine_exempt
+            stakeEngineProxy // patch_fix_upgrade_exempt_carryforward: carry the live StakeEngine forward (in-place: unchanged); NOT the phantom VSP_STAKE_ENGINE_ADDRESS env (defaulted address(0) -> disabled exemption)
         ); // patch_bundle10_5_part2a_timecap: 4-arg constructor
         UUPSUpgradeable(vspTokenAddr).upgradeToAndCall(address(newTokenImpl), bytes(""));
         console.log("VSPToken upgraded. New impl:", address(newTokenImpl));
