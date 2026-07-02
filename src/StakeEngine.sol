@@ -1233,11 +1233,10 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 rankedTotal = T - live;
         uint256 wPosB = rankedTotal + live / 2;
         uint256 behind = wPosB < T ? T - wPosB : 0;
-        uint256 bucketRate = (behind * RAY) / T;
-        if (bucketRate > RAY) {
-            bucketRate = RAY;
-        }
-        uint256 gRay = (rBase * bucketRate) / RAY;
+        // Ray-math ordering: single multiply-first truncation, mirroring the
+        // ranked-lot delta = amount*rBase*midpointRate/(RAY*RAY). behind<=T and
+        // rBase<=rMax<RAY, so gRay<=rBase<RAY (the former >RAY clamp was dead).
+        uint256 gRay = (rBase * behind) / T;
         if (aligned) {
             return (live * (RAY + gRay)) / RAY;
         }
@@ -1262,11 +1261,10 @@ contract StakeEngine is GovernedUpgradeable {
         uint256 rankedTotal = T - live;
         uint256 wPosB = rankedTotal + live / 2;
         uint256 behind = wPosB < T ? T - wPosB : 0;
-        uint256 bucketRate = (behind * RAY) / T;
-        if (bucketRate > RAY) {
-            bucketRate = RAY;
-        }
-        uint256 gRay = (rBase * bucketRate) / RAY;
+        // Ray-math ordering: single multiply-first truncation, mirroring the
+        // ranked-lot delta = amount*rBase*midpointRate/(RAY*RAY). behind<=T and
+        // rBase<=rMax<RAY, so gRay<=rBase<RAY (the former >RAY clamp was dead).
+        uint256 gRay = (rBase * behind) / T;
         uint256 ix = _bucketIndex(q);
         uint256 newIx;
         if (aligned) {
