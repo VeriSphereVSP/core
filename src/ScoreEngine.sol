@@ -52,6 +52,67 @@ contract ScoreEngine is GovernedUpgradeable {
     uint256 private constant DEFAULT_MAX_INCOMING = 64;
     uint256 private constant DEFAULT_MAX_OUTGOING = 64;
 
+    // ── patch_h2_score_memo: bounded, DAG-exact score memoization ─────────
+    // effectiveVSRay memoizes postId -> VS *within a single call*, storing a
+    // result ONLY when its whole subtree resolved with no cycle-cut and no
+    // depth-cap truncation (hence path-independent). Acyclic evidence graphs
+    // collapse from exponential to ~linear and return IDENTICAL scores; cyclic
+    // graphs are bounded by VS_MEMO_VISIT_CAP (deterministic). Memory-only:
+    // no storage slots added, external ABI unchanged.
+    uint256 private constant VS_MEMO_SLOTS = 2048; // pow2 open-addressed table
+    uint256 private constant VS_MEMO_VISIT_CAP = 50000; // hard backstop on node visits
+
+    struct VSMemo {
+        uint256[] keys; // postId occupying each slot
+        int256[] vals; // cached effectiveVSRay for that postId
+        bool[] used; // slot occupied?
+        uint256 visited;
+        bool full; // table saturated -> stop inserting (still correct)
+    }
+
+    function _newMemo() internal pure returns (VSMemo memory m) {
+        m.keys = new uint256[](VS_MEMO_SLOTS);
+        m.vals = new int256[](VS_MEMO_SLOTS);
+        m.used = new bool[](VS_MEMO_SLOTS);
+    }
+
+    function _memoGet(VSMemo memory m, uint256 postId) internal pure returns (bool hit, int256 val) {
+        uint256 mask = VS_MEMO_SLOTS - 1;
+        uint256 slot = postId & mask;
+        for (uint256 probe = 0; probe < VS_MEMO_SLOTS; probe++) {
+            if (!m.used[slot]) {
+                return (false, 0); // empty slot -> not present
+            }
+            if (m.keys[slot] == postId) {
+                return (true, m.vals[slot]);
+            }
+            slot = (slot + 1) & mask;
+        }
+        return (false, 0);
+    }
+
+    function _memoPut(VSMemo memory m, uint256 postId, int256 val) internal pure {
+        if (m.full) {
+            return;
+        }
+        uint256 mask = VS_MEMO_SLOTS - 1;
+        uint256 slot = postId & mask;
+        for (uint256 probe = 0; probe < VS_MEMO_SLOTS; probe++) {
+            if (!m.used[slot]) {
+                m.used[slot] = true;
+                m.keys[slot] = postId;
+                m.vals[slot] = val;
+                return;
+            }
+            if (m.keys[slot] == postId) {
+                m.vals[slot] = val; // overwrite (same value; harmless)
+                return;
+            }
+            slot = (slot + 1) & mask;
+        }
+        m.full = true; // no free slot -> saturate; correctness preserved, collapse degrades
+    }
+
     event EdgeLimitsSet(uint256 maxIncoming, uint256 maxOutgoing);
     error InvalidEdgeLimit();
     error ZeroAddressPolicy();
@@ -121,31 +182,63 @@ contract ScoreEngine is GovernedUpgradeable {
 
     function effectiveVSRay(uint256 postId) external view returns (int256) {
         uint256[] memory computing = new uint256[](MAX_DEPTH + 1);
-        return _effectiveVSRay(postId, computing, 0);
+        VSMemo memory memo = _newMemo(); // patch_h2_score_memo
+        (int256 v,) = _effectiveVSRay(postId, computing, memo, 0);
+        return v;
     }
 
-    function _effectiveVSRay(uint256 postId, uint256[] memory computing, uint256 depth) internal view returns (int256) {
+    // patch_h2_score_memo: returns (value, exact). `exact` == the whole subtree
+    // resolved with no cycle-cut and no depth-cap truncation, so the value is
+    // path-independent and safe to memoize (node-keyed). Only exact results are
+    // cached; acyclic graphs are therefore bit-identical to the pre-patch logic.
+    function _effectiveVSRay(uint256 postId, uint256[] memory computing, VSMemo memory memo, uint256 depth)
+        internal
+        view
+        returns (int256 value, bool exact)
+    {
         if (depth > MAX_DEPTH) {
-            return 0;
+            return (0, false); // depth-truncated -> arrival-depth dependent, not cacheable
         }
 
-        // Cycle detection
+        // Cycle detection MUST precede the memo lookup: a node on the current
+        // path is cut to 0 here regardless of any cached full value.
         for (uint256 i = 0; i < depth; i++) {
             if (computing[i] == postId) {
-                return 0;
+                return (0, false); // cycle cut -> ancestor-set dependent, not cacheable
             }
         }
+
+        // Memo lookup: only path-independent (exact) results were stored.
+        {
+            (bool hit, int256 cached) = _memoGet(memo, postId);
+            if (hit) {
+                return (cached, true);
+            }
+        }
+
+        // Visited-node backstop: bounds total work on adversarial cyclic graphs.
+        memo.visited += 1;
+        if (memo.visited > VS_MEMO_VISIT_CAP) {
+            return (0, false); // deterministic truncation; never cached
+        }
+
         computing[depth] = postId;
 
         (uint256 directSupport, uint256 directChallenge) = stake.getPostTotals(postId);
         bool directlyActive = protocolPolicy.isActive(directSupport + directChallenge);
 
-        // Compute incoming link contributions (bounded)
-        (int256 netContribution, uint256 absContribution) = _sumIncomingContributions(postId, computing, depth);
+        // Compute incoming link contributions (bounded). `exact` folds in every
+        // kept edge's exactness (dropped-by-cap edges are path-independent).
+        uint256 absContribution;
+        int256 netContribution;
+        (netContribution, absContribution, exact) = _sumIncomingContributions(postId, computing, memo, depth);
 
         // Activity gate
         if (!directlyActive && absContribution < protocolPolicy.postingFeeVSP()) {
-            return 0;
+            if (exact) {
+                _memoPut(memo, postId, 0);
+            }
+            return (0, exact);
         }
 
         // Combine
@@ -160,10 +253,17 @@ contract ScoreEngine is GovernedUpgradeable {
 
         int256 pool = totalSupport + totalChallenge;
         if (pool == 0) {
-            return 0;
+            if (exact) {
+                _memoPut(memo, postId, 0);
+            }
+            return (0, exact);
         }
 
-        return _clampRay(((totalSupport - totalChallenge) * RAY) / pool);
+        value = _clampRay(((totalSupport - totalChallenge) * RAY) / pool);
+        if (exact) {
+            _memoPut(memo, postId, value);
+        }
+        return (value, exact);
     }
 
     /// @dev Computes the sum of incoming link contributions, bounded by maxIncomingEdges.
@@ -171,11 +271,12 @@ contract ScoreEngine is GovernedUpgradeable {
     ///      with ties broken by linkPostId ascending (older link wins) so the most
     ///      economically significant evidence is always processed and the cap
     ///      decision is deterministic across calls and off-chain indexers.
-    function _sumIncomingContributions(uint256 postId, uint256[] memory computing, uint256 depth)
+    function _sumIncomingContributions(uint256 postId, uint256[] memory computing, VSMemo memory memo, uint256 depth)
         internal
         view
-        returns (int256 net, uint256 abs_)
+        returns (int256 net, uint256 abs_, bool exact)
     {
+        exact = true; // patch_h2_score_memo: AND of every kept edge's exactness
         LinkGraph.IncomingEdge[] memory inc = graph.getIncoming(postId);
         uint256 fee = protocolPolicy.postingFeeVSP();
         uint256 n = inc.length;
@@ -206,7 +307,10 @@ contract ScoreEngine is GovernedUpgradeable {
         }
 
         for (uint256 i = 0; i < n; i++) {
-            int256 contrib = _computeEdgeContribution(inc[i], computing, depth, fee);
+            (int256 contrib, bool eExact) = _computeEdgeContribution(inc[i], computing, memo, depth, fee);
+            if (!eExact) {
+                exact = false;
+            }
             if (contrib != 0) {
                 net += contrib;
                 abs_ += _abs(contrib);
@@ -228,32 +332,38 @@ contract ScoreEngine is GovernedUpgradeable {
     ///      top-N outgoing links and nowhere else. Adding more outgoing
     ///      links beyond the cap does not increase total influence — it
     ///      only competes for slots in the top-N.
+    // patch_h2_score_memo: returns (contrib, exact). Early exits that never
+    // consult the recursion are path-independent (exact = true); once the
+    // parent recursion runs, this edge inherits the parent's exactness.
     function _computeEdgeContribution(
         LinkGraph.IncomingEdge memory e,
         uint256[] memory computing,
+        VSMemo memory memo,
         uint256 depth,
         uint256 fee
-    ) internal view returns (int256) {
+    ) internal view returns (int256 contrib, bool exact) {
+        exact = true;
         uint256 parentTotal = _totalStake(e.fromClaimPostId);
         if (!protocolPolicy.isActive(parentTotal)) {
-            return 0;
+            return (0, true);
         }
 
         uint256 linkStake = _totalStake(e.linkPostId);
         if (!protocolPolicy.isActive(linkStake)) {
-            return 0;
+            return (0, true);
         }
 
         // Parent VS (recursive, with cycle detection)
-        int256 parentVS = _effectiveVSRay(e.fromClaimPostId, computing, depth + 1);
+        (int256 parentVS, bool pExact) = _effectiveVSRay(e.fromClaimPostId, computing, memo, depth + 1);
+        exact = pExact;
         if (parentVS <= 0) {
-            return 0;
+            return (0, exact);
         }
 
         // Link VS
         int256 linkVS = baseVSRay(e.linkPostId);
         if (linkVS <= 0) {
-            return 0;
+            return (0, exact);
         }
 
         // Parent mass distributed to this link (bounded outgoing sum +
@@ -261,20 +371,20 @@ contract ScoreEngine is GovernedUpgradeable {
         (uint256 sumOutgoing, uint256 thresholdStake, uint256 thresholdPostId) =
             _sumOutgoingLinkStake(e.fromClaimPostId, fee);
         if (sumOutgoing == 0) {
-            return 0;
+            return (0, exact);
         }
         if (!_isInTopN(linkStake, e.linkPostId, thresholdStake, thresholdPostId)) {
-            return 0;
+            return (0, exact);
         }
 
         int256 numerator = (parentVS * parentTotal.toInt256() * linkStake.toInt256()) / sumOutgoing.toInt256();
-        int256 contrib = (numerator * linkVS) / (RAY * RAY);
+        contrib = (numerator * linkVS) / (RAY * RAY);
 
         if (e.isChallenge) {
             contrib = -contrib;
         }
 
-        return contrib;
+        return (contrib, exact);
     }
 
     /// @dev True iff a link with `(linkStake, linkPostId)` is at or above the
@@ -350,7 +460,9 @@ contract ScoreEngine is GovernedUpgradeable {
         }
 
         uint256[] memory computing = new uint256[](MAX_DEPTH + 1);
-        return _computeEdgeContribution(inc[idx], computing, 0, fee);
+        VSMemo memory memo = _newMemo(); // patch_h2_score_memo
+        (contrib,) = _computeEdgeContribution(inc[idx], computing, memo, 0, fee);
+        return contrib;
     }
 
     function _totalStake(uint256 postId) internal view returns (uint256) {

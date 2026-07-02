@@ -35,15 +35,28 @@ contract StakeEngine is GovernedUpgradeable {
     }
 
     struct SideQueue {
-        StakeLot[] lots;
-        uint256 total; // Sum of all lot amounts (as of last snapshot)
+        StakeLot[] lots; // ranked lots (<= MAX_RANKED_LOTS), individually positioned
+        uint256 total; // side total = rankedTotal + bucketLive (as of last snapshot)
+        // patch_h1a_bucket: pooled tail bucket (all stakers below the ranked set,
+        // sharing one position). Rebases in O(1); bucketLive = scaled * index / RAY.
+        uint256 bucketScaledTotal;
+        uint256 bucketIndexRay; // 0 sentinel == RAY (lazy init)
+        // patch_h1b_promotion: max-heap of bucket member addresses, keyed on
+        // scaledShares (rebase-stable -> no settlement-time maintenance).
+        address[] bucketHeap;
     }
 
     struct PostState {
         SideQueue[2] sides; // [0] = support, [1] = challenge
-        uint256 lastSnapshotEpoch; // Last epoch when full O(N) update ran
+        uint256 lastSnapshotEpoch; // Last epoch when full O(C) update ran
         mapping(address => uint256) lotIndex0; // user => lots index + 1, support side
         mapping(address => uint256) lotIndex1; // user => lots index + 1, challenge side
+        // patch_h1a_bucket: user => scaled bucket shares (0 == not in bucket)
+        mapping(address => uint256) bucketShares0;
+        mapping(address => uint256) bucketShares1;
+        // patch_h1b_promotion: user => heap index + 1 (0 == not in heap)
+        mapping(address => uint256) bucketHeapPos0;
+        mapping(address => uint256) bucketHeapPos1;
     }
 
     // ------------------------------------------------------------
@@ -109,6 +122,9 @@ contract StakeEngine is GovernedUpgradeable {
     uint256 public constant MAX_SMAX_DECAY_EPOCHS = 10000;
     // bundle05_a: G-9/G-10 bounds (10M VSP cap on stake amount and setStake target).
     uint256 public constant MAX_STAKE_AMOUNT = 10_000_000 * 1e18;
+    // patch_h1a_bucket: max individually-positioned lots per side. Beyond this,
+    // stakers share the pooled tail bucket, so every per-side loop is O(C).
+    uint256 public constant MAX_RANKED_LOTS = 100;
     uint256 private constant DEFAULT_SMAX_DECAY_RATE_RAY = 9e17; // 10% daily decay
     uint256 private constant DEFAULT_SMAX_DECAY_MAX_EPOCHS = 30; // Full decay in ~30 days
 
@@ -142,6 +158,11 @@ contract StakeEngine is GovernedUpgradeable {
     event EpochBurned(uint256 indexed postId, uint256 amount);
     event SnapshotPeriodSet(uint256 oldPeriod, uint256 newPeriod);
     event LotsCompacted(uint256 indexed postId, uint8 side, uint256 removed);
+    // patch_h1a_bucket: emitted when a ranked lot is demoted into the tail bucket
+    // (indexer surfaces this as a zero-cost timeline entry for the demoted staker).
+    event LotDemoted(uint256 indexed postId, uint8 side, address indexed staker, uint256 amount);
+    // patch_h1b_promotion: emitted when a bucket member is promoted into the ranked set.
+    event LotPromoted(uint256 indexed postId, uint8 side, address indexed staker, uint256 amount);
     event SMaxRescanned(uint256 newSMax, uint256 newSMaxPostId);
     event SMaxDecayRateSet(uint256 oldRate, uint256 newRate);
     event SMaxDecayMaxEpochsSet(uint256 oldMax, uint256 newMax);
@@ -341,7 +362,12 @@ contract StakeEngine is GovernedUpgradeable {
         PostState storage ps = posts[postId];
         uint256 idx = _getLotIndex(ps, user, side);
         if (idx == 0) {
-            return 0;
+            // patch_h1a_bucket: bucket member -> live value (stored index)
+            uint256 shares = _getBucketShares(ps, user, side);
+            if (shares == 0) {
+                return 0;
+            }
+            return (shares * _bucketIndex(ps.sides[side])) / RAY;
         }
         StakeLot storage lot = ps.sides[side].lots[idx - 1];
         if (lot.amount == 0) {
@@ -416,8 +442,7 @@ contract StakeEngine is GovernedUpgradeable {
         }
         PostState storage psCheck = posts[postId];
         uint8 opposite = 1 - side;
-        uint256 oppIdx = _getLotIndex(psCheck, _msgSender(), opposite);
-        if (oppIdx > 0 && psCheck.sides[opposite].lots[oppIdx - 1].amount > 0) {
+        if (_userAmount(psCheck, opposite, _msgSender()) > 0) {
             revert OppositeSideStaked();
         }
         require(ERC20_TOKEN.transferFrom(_msgSender(), address(this), amount), "VSP transfer failed");
@@ -427,7 +452,7 @@ contract StakeEngine is GovernedUpgradeable {
             ps.lastSnapshotEpoch = epoch;
         }
         _maybeSnapshot(postId, epoch);
-        _addOrMergeLot(postId, side, amount, _msgSender());
+        _increaseUser(postId, side, amount, _msgSender()); // patch_h1a_bucket
         emit StakeAdded(postId, _msgSender(), side, amount);
     }
 
@@ -453,22 +478,15 @@ contract StakeEngine is GovernedUpgradeable {
         PostState storage ps = posts[postId];
         uint256 epoch = _currentEpoch();
         _maybeSnapshot(postId, epoch);
-        uint256 idx = _getLotIndex(ps, _msgSender(), side);
-        if (idx == 0) {
+        // patch_h1a_bucket: unified ranked/bucket decrease (both bounded)
+        if (_userAmount(ps, side, _msgSender()) < amount) {
             revert NotEnoughStake();
         }
-        StakeLot storage lot = ps.sides[side].lots[idx - 1];
-        if (lot.amount < amount) {
-            revert NotEnoughStake();
-        }
-        lot.amount -= amount;
-        ps.sides[side].total -= amount;
-        // O(n) recalculate all midpoint positions
-        _recomputeWeightedPositions(ps.sides[side]);
+        uint256 removed = _decreaseUser(postId, side, amount, _msgSender());
         uint256 TT = ps.sides[0].total + ps.sides[1].total;
         _updateSMax(postId, TT);
-        require(ERC20_TOKEN.transfer(_msgSender(), amount), "VSP transfer failed");
-        emit StakeWithdrawn(postId, _msgSender(), side, amount, true);
+        require(ERC20_TOKEN.transfer(_msgSender(), removed), "VSP transfer failed");
+        emit StakeWithdrawn(postId, _msgSender(), side, removed, true);
     }
 
     // ------------------------------------------------------------
@@ -499,10 +517,8 @@ contract StakeEngine is GovernedUpgradeable {
         _maybeSnapshot(postId, epoch);
         address user = _msgSender();
 
-        uint256 supIdx = _getLotIndex(ps, user, 0);
-        uint256 chalIdx = _getLotIndex(ps, user, 1);
-        uint256 currentSup = supIdx != 0 ? ps.sides[0].lots[supIdx - 1].amount : 0;
-        uint256 currentChal = chalIdx != 0 ? ps.sides[1].lots[chalIdx - 1].amount : 0;
+        uint256 currentSup = _userAmount(ps, 0, user); // patch_h1a_bucket
+        uint256 currentChal = _userAmount(ps, 1, user);
 
         uint256 absTarget = target >= 0 ? uint256(target) : uint256(-target);
 
@@ -520,7 +536,7 @@ contract StakeEngine is GovernedUpgradeable {
             if (absTarget > currentSup) {
                 uint256 toStake = absTarget - currentSup;
                 require(ERC20_TOKEN.transferFrom(user, address(this), toStake), "VSP transfer failed");
-                _addOrMergeLot(postId, 0, toStake, user);
+                _increaseUser(postId, 0, toStake, user); // patch_h1a_bucket
                 emit StakeAdded(postId, user, 0, toStake);
             } else if (absTarget < currentSup) {
                 _doWithdraw(postId, ps, user, 0, currentSup - absTarget);
@@ -532,7 +548,7 @@ contract StakeEngine is GovernedUpgradeable {
             if (absTarget > currentChal) {
                 uint256 toStake = absTarget - currentChal;
                 require(ERC20_TOKEN.transferFrom(user, address(this), toStake), "VSP transfer failed");
-                _addOrMergeLot(postId, 1, toStake, user);
+                _increaseUser(postId, 1, toStake, user); // patch_h1a_bucket
                 emit StakeAdded(postId, user, 1, toStake);
             } else if (absTarget < currentChal) {
                 _doWithdraw(postId, ps, user, 1, currentChal - absTarget);
@@ -545,19 +561,16 @@ contract StakeEngine is GovernedUpgradeable {
 
     /// @dev Withdraw helper for setStake (no reentrancy guard - caller is guarded)
     function _doWithdraw(uint256 postId, PostState storage ps, address user, uint8 side, uint256 amount) internal {
-        uint256 idx = _getLotIndex(ps, user, side);
-        if (idx == 0) {
+        // patch_h1a_bucket: unified ranked/bucket decrease
+        if (_userAmount(ps, side, user) == 0) {
             return;
         }
-        StakeLot storage lot = ps.sides[side].lots[idx - 1];
-        if (amount > lot.amount) {
-            amount = lot.amount;
+        uint256 removed = _decreaseUser(postId, side, amount, user);
+        if (removed == 0) {
+            return;
         }
-        lot.amount -= amount;
-        ps.sides[side].total -= amount;
-        _recomputeWeightedPositions(ps.sides[side]);
-        require(ERC20_TOKEN.transfer(user, amount), "VSP transfer failed");
-        emit StakeWithdrawn(postId, user, side, amount, true);
+        require(ERC20_TOKEN.transfer(user, removed), "VSP transfer failed");
+        emit StakeWithdrawn(postId, user, side, removed, true);
     }
 
     function _maybeSnapshot(uint256 postId, uint256 currentEpoch) internal {
@@ -730,36 +743,20 @@ contract StakeEngine is GovernedUpgradeable {
                 burned += loss;
             }
         }
+        // patch_h1a_bucket: settle the pooled tail bucket in O(1)
+        (uint256 bMint, uint256 bBurn) = _settleBucket(q, aligned, rBase);
+        minted += bMint;
+        burned += bBurn;
     }
 
     // ------------------------------------------------------------
     // Internal: Lot management
     // ------------------------------------------------------------
 
+    /// @dev Retired by patch_h1a_bucket — superseded by _increaseUser (cap+bucket
+    ///      aware). Retained as a guarded stub so any stale caller fails loudly.
     function _addOrMergeLot(uint256 postId, uint8 side, uint256 amount, address staker) internal {
-        PostState storage ps = posts[postId];
-        SideQueue storage q = ps.sides[side];
-        uint256 idx = _getLotIndex(ps, staker, side);
-        if (idx != 0) {
-            // Existing staker: expand lot in place, amount grows
-            StakeLot storage existing = q.lots[idx - 1];
-            existing.amount += amount;
-        } else {
-            // New staker: append to end of queue
-            uint256 newIdx = q.lots.length;
-            q.lots
-                .push(
-                    StakeLot({
-                        staker: staker, amount: amount, side: side, weightedPosition: 0, entryEpoch: _currentEpoch()
-                    })
-                );
-            _setLotIndex(ps, staker, side, newIdx + 1);
-        }
-        q.total += amount;
-        // O(n) recalculate all midpoint positions
-        _recomputeWeightedPositions(q);
-        uint256 TT = ps.sides[0].total + ps.sides[1].total;
-        _updateSMax(postId, TT);
+        _increaseUser(postId, side, amount, staker);
     }
 
     function _getLotIndex(PostState storage ps, address user, uint8 side) internal view returns (uint256) {
@@ -847,6 +844,7 @@ contract StakeEngine is GovernedUpgradeable {
                 total += lot.amount - loss;
             }
         }
+        total += _projectBucket(q, aligned, rBase); // patch_h1a_bucket
     }
 
     function _projectLotValue(PostState storage ps, StakeLot storage lot, uint256 currentEpoch)
@@ -1041,6 +1039,389 @@ contract StakeEngine is GovernedUpgradeable {
 
     /// @dev Recompute weighted positions as midpoints: cumBefore + amount/2.
     ///      Called after any queue mutation (stake, withdraw, compact, epoch).
+    // ===================================================================
+    // patch_h1a_bucket: pooled tail-bucket + unified position helpers
+    // ===================================================================
+
+    function _bucketIndex(SideQueue storage q) internal view returns (uint256) {
+        uint256 ix = q.bucketIndexRay;
+        return ix == 0 ? RAY : ix;
+    }
+
+    function _bucketLive(SideQueue storage q) internal view returns (uint256) {
+        return (q.bucketScaledTotal * _bucketIndex(q)) / RAY;
+    }
+
+    function _getBucketShares(PostState storage ps, address user, uint8 side) internal view returns (uint256) {
+        return side == 0 ? ps.bucketShares0[user] : ps.bucketShares1[user];
+    }
+
+    function _setBucketShares(PostState storage ps, address user, uint8 side, uint256 shares) internal {
+        if (side == 0) {
+            ps.bucketShares0[user] = shares;
+        } else {
+            ps.bucketShares1[user] = shares;
+        }
+    }
+
+    /// @dev User's live amount on a side, whether ranked or bucketed (as of last snapshot).
+    function _userAmount(PostState storage ps, uint8 side, address user) internal view returns (uint256) {
+        uint256 idx = _getLotIndex(ps, user, side);
+        if (idx != 0) {
+            return ps.sides[side].lots[idx - 1].amount;
+        }
+        uint256 shares = _getBucketShares(ps, user, side);
+        if (shares == 0) {
+            return 0;
+        }
+        return (shares * _bucketIndex(ps.sides[side])) / RAY;
+    }
+
+    /// @dev O(C) scan for the smallest ranked lot index.
+    function _smallestRankedIndex(SideQueue storage q) internal view returns (uint256 minIdx) {
+        minIdx = 0;
+        uint256 minAmt = q.lots[0].amount;
+        for (uint256 i = 1; i < q.lots.length; i++) {
+            if (q.lots[i].amount < minAmt) {
+                minAmt = q.lots[i].amount;
+                minIdx = i;
+            }
+        }
+    }
+
+    /// @dev Add `amount` to a (new or existing) bucket member. O(1).
+    function _bucketAdd(PostState storage ps, SideQueue storage q, uint8 side, address user, uint256 amount) internal {
+        uint256 prev = _getBucketShares(ps, user, side);
+        uint256 shares = (amount * RAY) / _bucketIndex(q);
+        q.bucketScaledTotal += shares;
+        _setBucketShares(ps, user, side, prev + shares);
+        if (prev == 0) {
+            _heapInsert(ps, q, side, user); // patch_h1b_promotion
+        } else {
+            _heapUpdate(ps, q, side, user);
+        }
+    }
+
+    /// @dev Remove up to `amount` of live value from a bucket member. Returns the
+    ///      exact value removed (<= amount; never over-pays). O(1).
+    function _bucketRemove(PostState storage ps, SideQueue storage q, uint8 side, address user, uint256 amount)
+        internal
+        returns (uint256 removed)
+    {
+        uint256 shares = _getBucketShares(ps, user, side);
+        if (shares == 0) {
+            return 0;
+        }
+        uint256 ix = _bucketIndex(q);
+        uint256 live = (shares * ix) / RAY;
+        if (amount >= live) {
+            // full exit: remove all shares, pay their exact live value
+            q.bucketScaledTotal -= shares;
+            _setBucketShares(ps, user, side, 0);
+            _heapRemove(ps, q, side, user); // patch_h1b_promotion
+            return live;
+        }
+        // partial: floor shares so removed value <= amount (solvency-safe)
+        uint256 sharesOut = (amount * RAY) / ix;
+        if (sharesOut > shares) {
+            sharesOut = shares;
+        }
+        q.bucketScaledTotal -= sharesOut;
+        _setBucketShares(ps, user, side, shares - sharesOut);
+        _heapUpdate(ps, q, side, user); // patch_h1b_promotion
+        return (sharesOut * ix) / RAY;
+    }
+
+    /// @dev Append a fresh ranked lot at the tail (arrival order). O(1) + caller recomputes positions.
+    function _pushRankedLot(PostState storage ps, SideQueue storage q, uint8 side, address user, uint256 amount)
+        internal
+    {
+        q.lots
+            .push(
+                StakeLot({staker: user, amount: amount, side: side, weightedPosition: 0, entryEpoch: _currentEpoch()})
+            );
+        _setLotIndex(ps, user, side, q.lots.length);
+    }
+
+    /// @dev Demote ranked lot at `sIdx` into the bucket, then compact the array so
+    ///      survivors keep arrival order ("all those after it move up"). O(C).
+    function _demoteRankedToBucket(uint256 postId, PostState storage ps, SideQueue storage q, uint8 side, uint256 sIdx)
+        internal
+    {
+        StakeLot storage victim = q.lots[sIdx];
+        address vStaker = victim.staker;
+        uint256 vAmount = victim.amount;
+        _setLotIndex(ps, vStaker, side, 0);
+        // patch_h1b_promotion: never demote a 0-amount ghost into the bucket/heap;
+        // just drop it (this also compacts ghosts during rebalance).
+        if (vAmount > 0) {
+            _bucketAdd(ps, q, side, vStaker, vAmount);
+            emit LotDemoted(postId, side, vStaker, vAmount);
+        }
+        // shift survivors [sIdx+1..end) left by one, fixing their lot indices
+        uint256 last = q.lots.length - 1;
+        for (uint256 i = sIdx; i < last; i++) {
+            q.lots[i] = q.lots[i + 1];
+            _setLotIndex(ps, q.lots[i].staker, side, i + 1);
+        }
+        q.lots.pop();
+    }
+
+    /// @dev Increase a user's position by `amount` (already transferred in).
+    ///      Routes to ranked-merge, bucket-add, new-ranked, or evict-or-bucket.
+    ///      q.total is recomputed exactly (O(C)) so it never drifts from
+    ///      rankedSum + bucketLive under bucket index rounding.
+    function _increaseUser(uint256 postId, uint8 side, uint256 amount, address user) internal {
+        PostState storage ps = posts[postId];
+        SideQueue storage q = ps.sides[side];
+
+        uint256 idx = _getLotIndex(ps, user, side);
+        if (idx != 0) {
+            q.lots[idx - 1].amount += amount; // existing ranked staker
+        } else if (_getBucketShares(ps, user, side) != 0) {
+            _bucketAdd(ps, q, side, user, amount); // existing bucket member (may promote via _rebalance)
+        } else if (q.lots.length < MAX_RANKED_LOTS) {
+            _pushRankedLot(ps, q, side, user, amount); // new ranked lot
+        } else {
+            uint256 sIdx = _smallestRankedIndex(q);
+            if (amount > q.lots[sIdx].amount) {
+                _demoteRankedToBucket(postId, ps, q, side, sIdx); // evict smallest, append new at tail
+                _pushRankedLot(ps, q, side, user, amount);
+            } else {
+                _bucketAdd(ps, q, side, user, amount); // too small for a slot -> bucket
+            }
+        }
+        _rebalance(postId, ps, q, side); // patch_h1b_promotion: keep ranked = the C largest
+        _recomputeWeightedPositions(q);
+        _recomputeSideTotal(q); // exact side total (ranked + bucketLive)
+        uint256 tt = ps.sides[0].total + ps.sides[1].total;
+        _updateSMax(postId, tt);
+    }
+
+    /// @dev Decrease a user's position by up to `amount`. Returns value removed.
+    ///      Ranked: reduce lot + O(C) reposition. Bucket: O(1). (H-1b: promotion.)
+    function _decreaseUser(uint256 postId, uint8 side, uint256 amount, address user)
+        internal
+        returns (uint256 removed)
+    {
+        PostState storage ps = posts[postId];
+        SideQueue storage q = ps.sides[side];
+        uint256 idx = _getLotIndex(ps, user, side);
+        if (idx != 0) {
+            StakeLot storage lot = q.lots[idx - 1];
+            removed = amount > lot.amount ? lot.amount : amount;
+            lot.amount -= removed;
+        } else {
+            removed = _bucketRemove(ps, q, side, user, amount);
+        }
+        _rebalance(postId, ps, q, side); // patch_h1b_promotion: fill freed slots / swap boundary
+        _recomputeWeightedPositions(q);
+        _recomputeSideTotal(q); // exact side total (ranked + bucketLive)
+    }
+
+    /// @dev Project the bucket's live value forward one settlement at `rBase`
+    ///      using the blended tail-midpoint rate. Mirrors _projectSideTotal.
+    function _projectBucket(SideQueue storage q, bool aligned, uint256 rBase) internal view returns (uint256) {
+        uint256 live = _bucketLive(q);
+        if (live == 0 || rBase == 0) {
+            return live;
+        }
+        uint256 T = q.total;
+        if (T == 0) {
+            return live;
+        }
+        uint256 rankedTotal = T - live;
+        uint256 wPosB = rankedTotal + live / 2;
+        uint256 behind = wPosB < T ? T - wPosB : 0;
+        uint256 bucketRate = (behind * RAY) / T;
+        if (bucketRate > RAY) {
+            bucketRate = RAY;
+        }
+        uint256 gRay = (rBase * bucketRate) / RAY;
+        if (aligned) {
+            return (live * (RAY + gRay)) / RAY;
+        }
+        uint256 factor = gRay >= RAY ? 0 : RAY - gRay;
+        return (live * factor) / RAY;
+    }
+
+    /// @dev Settle the bucket in place (one epoch) via a single index rebase.
+    ///      Returns minted/burned for the bucket slab. O(1).
+    function _settleBucket(SideQueue storage q, bool aligned, uint256 rBase)
+        internal
+        returns (uint256 minted, uint256 burned)
+    {
+        uint256 live = _bucketLive(q);
+        if (q.bucketScaledTotal == 0 || live == 0 || rBase == 0) {
+            return (0, 0);
+        }
+        uint256 T = q.total;
+        if (T == 0) {
+            return (0, 0);
+        }
+        uint256 rankedTotal = T - live;
+        uint256 wPosB = rankedTotal + live / 2;
+        uint256 behind = wPosB < T ? T - wPosB : 0;
+        uint256 bucketRate = (behind * RAY) / T;
+        if (bucketRate > RAY) {
+            bucketRate = RAY;
+        }
+        uint256 gRay = (rBase * bucketRate) / RAY;
+        uint256 ix = _bucketIndex(q);
+        uint256 newIx;
+        if (aligned) {
+            newIx = (ix * (RAY + gRay)) / RAY;
+        } else {
+            uint256 factor = gRay >= RAY ? 0 : RAY - gRay;
+            newIx = (ix * factor) / RAY;
+        }
+        q.bucketIndexRay = newIx;
+        uint256 newLive = (q.bucketScaledTotal * newIx) / RAY;
+        if (newLive >= live) {
+            minted = newLive - live;
+        } else {
+            burned = live - newLive;
+        }
+    }
+
+    // ===================================================================
+    // patch_h1b_promotion: bucket max-heap (keyed on scaledShares) + rebalance
+    // ===================================================================
+
+    function _getHeapPos(PostState storage ps, address user, uint8 side) internal view returns (uint256) {
+        return side == 0 ? ps.bucketHeapPos0[user] : ps.bucketHeapPos1[user];
+    }
+
+    function _setHeapPos(PostState storage ps, address user, uint8 side, uint256 v) internal {
+        if (side == 0) {
+            ps.bucketHeapPos0[user] = v;
+        } else {
+            ps.bucketHeapPos1[user] = v;
+        }
+    }
+
+    function _heapKey(PostState storage ps, uint8 side, address a) internal view returns (uint256) {
+        return _getBucketShares(ps, a, side); // scaledShares: rebase-invariant
+    }
+
+    function _heapPeekMax(SideQueue storage q) internal view returns (address) {
+        return q.bucketHeap.length == 0 ? address(0) : q.bucketHeap[0];
+    }
+
+    function _heapSwap(PostState storage ps, SideQueue storage q, uint8 side, uint256 i, uint256 j) internal {
+        address ai = q.bucketHeap[i];
+        address aj = q.bucketHeap[j];
+        q.bucketHeap[i] = aj;
+        q.bucketHeap[j] = ai;
+        _setHeapPos(ps, aj, side, i + 1);
+        _setHeapPos(ps, ai, side, j + 1);
+    }
+
+    function _siftUp(PostState storage ps, SideQueue storage q, uint8 side, uint256 i) internal {
+        while (i > 0) {
+            uint256 parent = (i - 1) / 2;
+            if (_heapKey(ps, side, q.bucketHeap[i]) <= _heapKey(ps, side, q.bucketHeap[parent])) {
+                break;
+            }
+            _heapSwap(ps, q, side, i, parent);
+            i = parent;
+        }
+    }
+
+    function _siftDown(PostState storage ps, SideQueue storage q, uint8 side, uint256 i) internal {
+        uint256 n = q.bucketHeap.length;
+        while (true) {
+            uint256 l = 2 * i + 1;
+            uint256 r = 2 * i + 2;
+            uint256 big = i;
+            if (l < n && _heapKey(ps, side, q.bucketHeap[l]) > _heapKey(ps, side, q.bucketHeap[big])) {
+                big = l;
+            }
+            if (r < n && _heapKey(ps, side, q.bucketHeap[r]) > _heapKey(ps, side, q.bucketHeap[big])) {
+                big = r;
+            }
+            if (big == i) {
+                break;
+            }
+            _heapSwap(ps, q, side, i, big);
+            i = big;
+        }
+    }
+
+    function _heapInsert(PostState storage ps, SideQueue storage q, uint8 side, address addr) internal {
+        q.bucketHeap.push(addr);
+        uint256 i = q.bucketHeap.length - 1;
+        _setHeapPos(ps, addr, side, i + 1);
+        _siftUp(ps, q, side, i);
+    }
+
+    function _heapRemove(PostState storage ps, SideQueue storage q, uint8 side, address addr) internal {
+        uint256 pos = _getHeapPos(ps, addr, side);
+        if (pos == 0) {
+            return;
+        }
+        uint256 i = pos - 1;
+        uint256 lastIdx = q.bucketHeap.length - 1;
+        address lastAddr = q.bucketHeap[lastIdx];
+        q.bucketHeap[i] = lastAddr;
+        _setHeapPos(ps, lastAddr, side, i + 1);
+        q.bucketHeap.pop();
+        _setHeapPos(ps, addr, side, 0);
+        if (i < q.bucketHeap.length) {
+            _siftUp(ps, q, side, i);
+            _siftDown(ps, q, side, i);
+        }
+    }
+
+    function _heapUpdate(PostState storage ps, SideQueue storage q, uint8 side, address addr) internal {
+        uint256 pos = _getHeapPos(ps, addr, side);
+        if (pos == 0) {
+            return;
+        }
+        uint256 i = pos - 1;
+        _siftUp(ps, q, side, i);
+        _siftDown(ps, q, side, i);
+    }
+
+    /// @dev Promote a bucket member to the ranked set at its live value (tail slot,
+    ///      arrival order). Full bucket exit + heap remove. O(C + log n).
+    function _promoteToRanked(uint256 postId, PostState storage ps, SideQueue storage q, uint8 side, address member)
+        internal
+    {
+        uint256 shares = _getBucketShares(ps, member, side);
+        if (shares == 0) {
+            return;
+        }
+        uint256 live = (shares * _bucketIndex(q)) / RAY;
+        q.bucketScaledTotal -= shares;
+        _setBucketShares(ps, member, side, 0);
+        _heapRemove(ps, q, side, member);
+        _pushRankedLot(ps, q, side, member, live);
+        emit LotPromoted(postId, side, member, live);
+    }
+
+    /// @dev Restore "ranked = the C largest": fill any free ranked slots from the
+    ///      top of the bucket, then swap while max(bucket) > min(ranked). The
+    ///      invariant holds before each mutation, so in practice this is <=1 move;
+    ///      the iter cap is a hard DoS backstop (O(C) worst case). O(C + log n).
+    function _rebalance(uint256 postId, PostState storage ps, SideQueue storage q, uint8 side) internal {
+        while (q.lots.length < MAX_RANKED_LOTS && q.bucketScaledTotal > 0) {
+            _promoteToRanked(postId, ps, q, side, _heapPeekMax(q));
+        }
+        uint256 iter = 0;
+        while (q.bucketScaledTotal > 0 && q.lots.length == MAX_RANKED_LOTS && iter < MAX_RANKED_LOTS) {
+            address mx = _heapPeekMax(q);
+            uint256 mxLive = (_getBucketShares(ps, mx, side) * _bucketIndex(q)) / RAY;
+            uint256 sIdx = _smallestRankedIndex(q);
+            if (mxLive <= q.lots[sIdx].amount) {
+                break;
+            }
+            _demoteRankedToBucket(postId, ps, q, side, sIdx);
+            _promoteToRanked(postId, ps, q, side, mx);
+            iter++;
+        }
+    }
+
     function _recomputeWeightedPositions(SideQueue storage q) internal {
         uint256 cumulative = 0;
         for (uint256 i = 0; i < q.lots.length; i++) {
@@ -1057,7 +1438,7 @@ contract StakeEngine is GovernedUpgradeable {
         for (uint256 i = 0; i < q.lots.length; i++) {
             total += q.lots[i].amount;
         }
-        q.total = total;
+        q.total = total + _bucketLive(q); // patch_h1a_bucket
     }
 
     uint256[499] private __gap;

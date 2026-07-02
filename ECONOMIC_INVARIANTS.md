@@ -81,6 +81,51 @@ After every snapshot, for each side of each post:
 
 ---
 
+### I.7 Bounded settlement — ranked set + pooled tail bucket
+**(H-1 bucket redesign — StakeEngine)**
+
+Each side of a post holds at most `MAX_RANKED_LOTS = 100` individually-positioned
+("ranked") lots. Any staker beyond that shares a single pooled **tail bucket**
+that settles in O(1) via a reward-per-share index (`bucketIndexRay`). Every
+per-side loop (`_applyEpoch`, `_recomputeSideTotal`, `_rescalePositions`, and the
+stake/withdraw repositioning) is therefore bounded by `C = 100` (bucket ops O(1),
+heap ops O(log n)). This closes the H-1 fund-lock: a side inflated with N sybil
+dust lots can no longer push `withdraw()`/settlement past the block gas limit, and
+a bucket member always exits in O(1).
+
+**Ranked = the C largest.** After every stake/withdraw the set is rebalanced so
+the ranked lots are the C largest positions and, when ranked is full,
+`max(bucket) <= min(ranked)`. A new/topped-up position larger than the smallest
+ranked lot is promoted (evicting the smallest ranked lot into the bucket); a
+ranked lot reduced below the greatest bucket member is demoted and that bucket
+member promoted. Transitions emit `LotDemoted` / `LotPromoted` (indexer-surfaced;
+no on-chain transfer to the affected user).
+
+**Intended economic change (the ONLY one).** Ranked lots keep today's exact
+per-lot position-weighted reward — bit-identical to the pre-redesign settlement
+whenever a side has <= C stakers. Bucket members all share one position, the
+blended tail midpoint `rankedTotal + bucketLive/2`, and therefore earn the **same
+uniform rate regardless of their arrival order *within* the bucket**. Ranked
+members still earn strictly more than bucket members, and among ranked members
+the earlier-earns-more ordering is unchanged. This within-bucket uniformity is
+the deliberate cost of O(1) tail settlement.
+
+---
+
+### I.8 Bucket conservation & solvency
+For each side, at all times after a completed transition:
+- `sideTotal == rankedTotal + bucketLive`, where
+  `bucketLive = bucketScaledTotal * bucketIndexRay / RAY` (recomputed exactly
+  after each mutation, so it never drifts under index rounding).
+- The bucket rebase mints/burns exactly `Delta(bucketLive)` per epoch, so I.1
+  (balance == sum of side totals) continues to hold with the bucket active.
+- A bucket withdrawal never pays more than the member's share of `bucketLive`
+  (shares floored on partial exit), so the pool cannot be over-drawn. Limited
+  liability (I.2) holds for bucket members via the index flooring at 0 on the
+  losing side.
+
+---
+
 ## II. Score Semantics Invariants (ScoreEngine)
 
 ### II.1 BaseVS range is bounded
@@ -159,3 +204,5 @@ Automated tests cover:
 6. Single-sided positions: staking opposite side reverts.
 7. Position rescale: after snapshot, all positions < sideTotal.
 8. View projections match materialized snapshot values (within rounding tolerance).
+9. Bounded settlement with an active tail bucket: O(1) bucket withdraw regardless of bucket size (H-1 DoS regression); cap eviction and promotion emit `LotDemoted`/`LotPromoted`.
+10. Bucket conservation/solvency under the ProtocolInvariants fuzz (`ranked + bucketLive == sideTotal`; no over-draw), plus withdraw-triggered and top-up-triggered promotion.
